@@ -208,4 +208,7 @@ SPA React/Redux, seed, lógica fuera de controllers y Jest >80 % en **ambos**
 proyectos; pp. 5-6: sandbox, repositorio público y entrega desplegada. La meta
 interna se mantiene >=85 % por proyecto. Hexagonal, ROP y clean code siguen
 siendo criterios explícitos; revisar imports y probar núcleo sin Nest/SQL/HTTP.
-Todas las pruebas de negocio anteriores están **previstas**, no implementadas.
+Ya existen pruebas de persistencia para migración/seed, restricciones, relaciones,
+índices y dos inserciones concurrentes de intento activo. Las pruebas del
+recorrido, locks de inventario y finalización de pagos siguen **pendientes**;
+la persistencia no implementa esos casos de uso.

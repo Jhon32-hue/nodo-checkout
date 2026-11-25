@@ -4,6 +4,7 @@ import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { validateEnvironment } from './config/environment';
+import { createDatabaseOptions } from './infrastructure/database/database-options';
 
 @Module({
   imports: [
@@ -16,15 +17,14 @@ import { validateEnvironment } from './config/environment';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService): TypeOrmModuleOptions => ({
-        type: 'postgres',
-        host: config.getOrThrow<string>('DB_HOST'),
-        port: config.getOrThrow<number>('DB_PORT'),
-        username: config.getOrThrow<string>('DB_USER'),
-        password: config.getOrThrow<string>('DB_PASSWORD'),
-        database: config.getOrThrow<string>('DB_NAME'),
+        ...createDatabaseOptions({
+          DB_HOST: config.getOrThrow<string>('DB_HOST'),
+          DB_PORT: config.getOrThrow<number>('DB_PORT'),
+          DB_USER: config.getOrThrow<string>('DB_USER'),
+          DB_PASSWORD: config.getOrThrow<string>('DB_PASSWORD'),
+          DB_NAME: config.getOrThrow<string>('DB_NAME'),
+        }),
         autoLoadEntities: true,
-        synchronize: false,
-        migrationsRun: false,
         retryAttempts: 3,
         retryDelay: 1000,
       }),

@@ -2,13 +2,14 @@
 
 Assessment de compra de un producto: catálogo y stock, comprador/entrega, resumen,
 pago con tarjeta en sandbox y resultado con inventario actualizado. Orientado a
-móvil y recuperable al refrescar. 
+móvil y recuperable al refrescar.
 
 ## Estado actual
 
 | Implementado                                                    | Propuesto / pendiente                                               |
 | --------------------------------------------------------------- | ------------------------------------------------------------------- |
-| NestJS 11 + TypeScript, PostgreSQL 17 en Docker, TypeORM 1.1.3  | Modelo de negocio, migraciones, seed y endpoints de compra          |
+| NestJS 11 + TypeScript, PostgreSQL 17 en Docker, TypeORM 1.1.3  | Casos de uso y endpoints de compra                                  |
+| Entidades ORM, migración inicial y seed idempotente             | Repositorios de negocio, bloqueos y finalización atómica            |
 | Variables validadas, Helmet, ValidationPipe y Swagger           | Sesión/CSRF, pagos sandbox, reservas, idempotencia y reconciliación |
 | GET / devuelve Hello World!; pruebas unitarias y e2e de la base | SPA React, cobertura del negocio, Linux y despliegue AWS            |
 
@@ -29,6 +30,8 @@ docker compose up -d db
 docker compose ps
 Set-Location backend
 npm ci
+npm run migration:run
+npm run seed:products
 npm run start:dev
 ```
 
@@ -50,12 +53,32 @@ persistente; `docker compose stop db` lo detiene desde la raíz sin borrar datos
 Nest busca .env del directorio de ejecución y después del padre; variables del
 proceso tienen prioridad. Compose lee el .env raíz. No versionar secretos.
 Cambiar .env no cambia credenciales de un volumen PostgreSQL ya inicializado.
-Se conservan synchronize=false y migrationsRun=false; todavía no hay comandos
-de migración ni seed. Linux no se ha verificado como runtime del backend.
+Se conservan synchronize=false y migrationsRun=false: el arranque no crea tablas
+ni ejecuta migraciones. CLI y seed reutilizan validación y precedencia de entorno,
+incluyendo .env UTF-8 con BOM de Windows. Linux no se ha verificado como runtime
+del backend; PostgreSQL sí se ejecuta en contenedor Linux.
+
+## Migraciones y seed
+
+Desde backend, contra la DB indicada por las variables de entorno:
+
+```powershell
+npm run migration:generate -- src/infrastructure/database/migrations/NombreDelCambio
+npm run migration:run
+npm run seed:products
+npm run migration:revert
+```
+
+Generar compara las entidades con la base seleccionada; revisar el SQL antes de
+versionarlo. Revertir elimina las tablas/datos de la última migración: usar una
+base descartable para comprobarlo. La inicial crea las siete tablas del modelo;
+no aplica reglas de compra ni procesa pagos. El seed inserta dos productos por
+ID/SKU y no sobrescribe stock, precios ni datos ya existentes. Sus imágenes son
+placeholders externos para desarrollo.
 
 ## Pruebas y cobertura
 
-Desde backend, con PostgreSQL healthy para e2e:
+Desde backend, con PostgreSQL healthy para integración y e2e:
 
 ```powershell
 npm run format:check
@@ -63,6 +86,7 @@ npm run lint:check
 npm run build
 npm test -- --runInBand
 npm run test:e2e -- --runInBand
+npm run test:integration
 npm run test:cov -- --runInBand
 ```
 
@@ -71,17 +95,21 @@ existen y la base se comprobó en Windows. Las e2e actuales solo leen PostgreSQL
 consulta SQL, Hello World, Helmet, Swagger y validación global. Las unitarias
 cubren configuración. No equivalen a pruebas del negocio todavía no creado.
 
-En esta revisión documental pasaron las 55 pruebas unitarias y las 6 e2e
-existentes con PostgreSQL. No se añadieron pruebas ni se midió cobertura.
+Verificado en Windows: 58 unitarias, 15 de integración de persistencia y 6 e2e.
+La integración crea payment_checkout_test_<aleatorio> desde cero, migra, prueba
+restricciones/seed, revierte/reaplica y elimina esa base. Requiere que DB_USER
+pueda CREATE DATABASE en el servidor local; nunca limpia la base DB_NAME.
+También se comprobaron los comandos CLI en otra base temporal, incluida
+migration:generate con --check sin cambios. No se migró ni sembró la DB local.
 
 La prueba exige **más del 80 % en frontend y backend por separado**; meta >=85 %
-en statements, branches, functions y lines. Cobertura de esta revisión documental:
-no medida; frontend no existe. Al implementar, registrar comando/fecha/commit y
+en statements, branches, functions y lines. Cobertura de esta tarea: no medida;
+frontend no existe. Al implementar, registrar comando/fecha/commit y
 porcentajes reales de cada proyecto. No atribuir cobertura backend al frontend.
 Escenarios previstos: dinero/overflow, estados, stock concurrente, doble clic,
 idempotencia, aprobado/rechazado, timeout/sync, eventos repetidos, refresh e IDOR.
 
-## API y modelo propuestos
+## API propuesta y modelo persistido
 
 [Contrato API](docs/api-contract.md): catálogo, sesión, checkout/resumen,
 transacciones/pay/sync y webhook. Clientes/destino se capturan por checkout;
@@ -101,8 +129,9 @@ erDiagram
 
 [Modelo detallado](docs/data-model.md): compra distinta de intento; un intento
 activo, importes y datos históricos congelados, stock/reservas y entrega solo al
-aprobar. Montos en centavos calculados por servidor. Bloqueos e índices PostgreSQL
-protegen concurrencia; clave/hash del intento evitan duplicación de cobro.
+aprobar. Montos en centavos calculados por servidor. Los índices PostgreSQL
+aportan restricciones de unicidad; los casos de uso que aplicarán bloqueos,
+compararán hashes y coordinarán cobro/inventario/entrega siguen pendientes.
 
 ## Arquitectura y recorrido
 
@@ -132,5 +161,6 @@ Recuperar sin ID remoto requiere verificar capacidades UAT; nunca reenviar por
 un timeout o liberar por un not-found aislado. También quedan por validar
 contratos/auth/firma/límites en UAT y confirmar tarifas ficticias propuestas.
 Solo datos ficticios; política de retención y operación con datos reales quedan
-fuera de este alcance. No hay triggers de inmutabilidad: se protege por casos de
-uso/repositorios/tests, sin garantía frente a SQL privilegiado.
+fuera de este alcance. No hay triggers de inmutabilidad: sus garantías mediante
+futuros casos de uso/repositorios aún están pendientes, sin protección frente a
+SQL privilegiado.

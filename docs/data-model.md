@@ -1,6 +1,9 @@
 # Modelo de datos
 
-**Propuesto, no implementado.** Una compra contiene un producto y cantidad; puede
+**Persistencia implementada:** siete entidades TypeORM en infraestructura,
+migración inicial y seed. Verificados en PostgreSQL aislado; casos de uso,
+repositorios de negocio y reglas de coordinación siguen pendientes.
+Una compra contiene un producto y cantidad; puede
 conservar varios intentos de pago, solo uno activo. Ver [flujo](checkout-flow.md)
 y [API](api-contract.md).
 
@@ -21,7 +24,7 @@ erDiagram
 ## Convenciones
 
 UUID v4 como PK; todas las tablas tienen `id` y `created_at timestamptz`.
-Las filas mutables tienen `updated_at`. Fechas API UTC ISO 8601, FK con
+Todas incluyen `updated_at` como metadato de persistencia. Fechas API UTC ISO 8601, FK con
 ON DELETE RESTRICT. En las tablas, `?` indica NULL permitido; el resto es
 obligatorio. Estados como varchar con CHECK. Los IDs del proveedor son opacos.
 
@@ -73,11 +76,13 @@ con futuras ediciones del catálogo o borrador.
 
 Índices únicos parciales por checkout: uno WHERE status='PENDING' y otro WHERE
 status='APPROVED'. Índice `(checkout_id, created_at)` para el historial. Los
-repositorios solo exponen operaciones que cambian estado/identificador del
-proveedor, nunca actualizan campos históricos. Tests de integración comprueban
-esa inmutabilidad por la aplicación. Se eliminan triggers: cambios directos por
-un rol SQL privilegiado no quedan protegidos por esta garantía; no se ofrecen
-rutas administrativas de edición y la aplicación no tendrá permisos DDL.
+futuros repositorios solo deberán cambiar estado/identificador del proveedor,
+no campos históricos. Esa inmutabilidad de aplicación todavía no está
+implementada; las entidades no impiden editar esos campos con TypeORM/SQL.
+No se añaden triggers ni rutas administrativas; separar rol de migración y rol
+sin DDL al desplegar. Los CHECKs actuales validan límites, JSON de tipo objeto,
+hashes y combinaciones de estado/envío/fechas; no sustituyen DTOs ni validación
+del contenido de comprador/destino.
 
 ### Reservas y entregas
 
@@ -86,7 +91,8 @@ rutas administrativas de edición y la aplicación no tendrá permisos DDL.
 | `inventory_reservations` / Catalog | transaction_id FK, product_id FK, quantity smallint, status varchar(16), expires_at timestamptz | UNIQUE transaction_id; HELD/CONFIRMED/RELEASED; índice `(product_id, status)`                                          |
 | `deliveries` / Fulfillment         | checkout_id FK, transaction_id FK, status varchar(16)                                           | UNIQUE checkout_id y transaction_id; estado READY; FK compuesto (transaction_id, checkout_id) al intento de esa compra |
 
-Cada intento y su reserva se crean en el mismo commit. Entrega solo existe con
+Regla para los futuros casos de uso: intento y reserva se crearán en el mismo
+commit. Entrega solo deberá existir con
 aprobación, en el mismo commit que confirma inventario. Su producto/destino
 histórico se obtiene del intento: no se copia otra vez. READY significa lista
 para entregar, no integración con transportista.
@@ -98,21 +104,27 @@ ocupándola **sin importar esa fecha**. La lectura usa la misma regla que la
 escritura. Al aprobar se decrementa stock y se marca CONFIRMED; al rechazar se
 marca RELEASED. No hay contador reserved duplicado ni tabla inventory separada.
 
-La creación de reserva y el inicio/finalización bloquean la fila products antes
-de evaluar capacidad. Todos los escritores siguen checkout -> intento propio
+Los futuros casos de creación de reserva e inicio/finalización bloquearán
+products antes de evaluar capacidad. Todos los escritores seguirán checkout -> intento propio
 (si existe) -> product -> reserva propia. Así dos compradores no reservan la
 última unidad; no se bloquean compras ajenas para limpiar reservas vencidas.
 
-## Migraciones y seed (pendientes)
+## Migración y seed implementados
 
-1. DataSource CLI con la configuración existente; conservar synchronize=false y
-   migrationsRun=false. Migraciones explícitas: catálogo/sesión/compra, después
-   intentos/reservas/entregas con CHECKs, FKs e índices.
-2. Seed con SKUs e IDs fijos: INSERT ON CONFLICT DO NOTHING, producto y stock
-   inicial juntos. Ejecutarlo dos veces no duplica filas ni restablece stock vendido.
-3. Probar migraciones desde una base vacía aislada, seed repetido y restricciones.
-   No borrar ni recrear la base local para los tests. Los comandos de migración,
-   seed e integración todavía no existen; se añadirán con su implementación.
+- DataSource en `backend/src/infrastructure/database/data-source.ts`; opciones
+  compartidas con NestJS, validación existente y synchronize/migrationsRun=false.
+- Inicial `1795632838292-InitialSchema.ts`: siete tablas, FKs RESTRICT, CHECKs e
+  índices. FKs compuestas vinculan entrega a su compra y reserva al producto y
+  cantidad de su intento. Aprobación/stock/entrega en un commit requieren todavía
+  la UoW de aplicación: las FKs por sí solas no lo garantizan.
+- Seed con IDs/SKUs fijos y ON CONFLICT DO NOTHING en una transacción; dos
+  productos ficticios. Repetirlo preserva stock consumido y ediciones existentes.
+- [Comandos reales en README](../README.md#migraciones-y-seed). La prueba
+  `npm run test:integration` crea una DB aleatoria aislada, verifica up/down/up,
+  equivalencia ORM/esquema, seed repetido, límites, FKs e índices concurrentes.
+  Necesita CREATEDB en el servidor local y borra solo su propia base temporal.
+  Verificado con CLI Node en Windows y PostgreSQL 17 en Docker Linux; ejecución
+  de la CLI en Linux pendiente. La DB de desarrollo no se migró en esta tarea.
 
 Solo datos ficticios en sandbox. No se incluye un sistema de retención o
 anonimización en este assessment; antes de usar datos reales se requiere definir
