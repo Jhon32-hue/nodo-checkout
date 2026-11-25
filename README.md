@@ -1,20 +1,29 @@
 # Payment Checkout
 
-Base técnica de un checkout: NestJS 11, TypeScript, TypeORM 1.1.3 y PostgreSQL 17.
-Por ahora `GET /` devuelve `Hello World!`. No hay tablas de negocio, migraciones,
-frontend ni integración de pagos.
+Assessment de compra de un producto: catálogo y stock, comprador/entrega, resumen,
+pago con tarjeta en sandbox y resultado con inventario actualizado. Orientado a
+móvil y recuperable al refrescar. 
 
-## Requisitos
+## Estado actual
 
-- Node.js 24 y npm (verificados con Node.js 24.11.1 y npm 11.6.2).
-- Docker Desktop en ejecución con contenedores Linux y Docker Compose.
-- Git. En Windows, ejecutar desde PowerShell.
+| Implementado                                                    | Propuesto / pendiente                                               |
+| --------------------------------------------------------------- | ------------------------------------------------------------------- |
+| NestJS 11 + TypeScript, PostgreSQL 17 en Docker, TypeORM 1.1.3  | Modelo de negocio, migraciones, seed y endpoints de compra          |
+| Variables validadas, Helmet, ValidationPipe y Swagger           | Sesión/CSRF, pagos sandbox, reservas, idempotencia y reconciliación |
+| GET / devuelve Hello World!; pruebas unitarias y e2e de la base | SPA React, cobertura del negocio, Linux y despliegue AWS            |
 
-## Instalación local
+Frontend acordado: React + TypeScript + Vite, Redux Toolkit/React Redux,
+React Hook Form/Zod, CSS Modules y Flexbox/Grid, Jest/React Testing Library.
+Backend conserva @nestjs/config, class-validator/class-transformer, Swagger,
+Helmet y neverthrow. No hay aplicación desplegada ni URL pública disponible.
 
-Desde la raíz del repositorio:
+## Ejecutar localmente (Windows / PowerShell)
+
+Requisitos: Node.js 24, npm, Git y Docker Desktop con contenedores Linux.
+La base se verificó con Node 24.11.1 y npm 11.6.2. Desde la raíz:
 
 ```powershell
+# Solo la primera vez; no sobrescribir un .env existente
 Copy-Item .env.example .env
 docker compose up -d db
 docker compose ps
@@ -23,64 +32,30 @@ npm ci
 npm run start:dev
 ```
 
-Copiar `.env.example` solamente la primera vez; conservar la configuración local
-si `.env` ya existe. Esperar a que `db` aparezca como `healthy`.
+Esperar a `db` healthy. API: <http://localhost:3000>, Swagger:
+<http://localhost:3000/docs>, OpenAPI: <http://localhost:3000/docs-json>.
+Son rutas locales actuales; los endpoints de negocio aún no aparecen en Swagger.
+Ctrl+C detiene NestJS. PostgreSQL usa `127.0.0.1:5433` desde Windows y volumen
+persistente; `docker compose stop db` lo detiene desde la raíz sin borrar datos.
 
-La API queda en <http://localhost:3000>, Swagger en
-<http://localhost:3000/docs> y OpenAPI en <http://localhost:3000/docs-json>.
-Si se cambia `PORT`, ajustar esas direcciones. Detener NestJS con Ctrl+C.
-En Linux, usar `cp .env.example .env` y `cd backend` para los pasos equivalentes.
+| Variable obligatoria | Regla / ejemplo local               |
+| -------------------- | ----------------------------------- |
+| DB_HOST              | Texto no vacío; 127.0.0.1           |
+| DB_PORT              | Entero 1..65535; 5433               |
+| DB_NAME              | Texto no vacío; payment_checkout    |
+| DB_USER              | Texto no vacío; checkout            |
+| DB_PASSWORD          | Definir en .env; ejemplo solo local |
+| PORT                 | Entero 1..65535; 3000               |
 
-## Configuración
+Nest busca .env del directorio de ejecución y después del padre; variables del
+proceso tienen prioridad. Compose lee el .env raíz. No versionar secretos.
+Cambiar .env no cambia credenciales de un volumen PostgreSQL ya inicializado.
+Se conservan synchronize=false y migrationsRun=false; todavía no hay comandos
+de migración ni seed. Linux no se ha verificado como runtime del backend.
 
-Todas estas variables son obligatorias:
+## Pruebas y cobertura
 
-| Variable      | Regla               | Ejemplo local      |
-| ------------- | ------------------- | ------------------ |
-| `DB_HOST`     | Texto no vacío      | `127.0.0.1`        |
-| `DB_PORT`     | Entero de 1 a 65535 | `5433`             |
-| `DB_NAME`     | Texto no vacío      | `payment_checkout` |
-| `DB_USER`     | Texto no vacío      | `checkout`         |
-| `DB_PASSWORD` | Texto no vacío      | Definir en `.env`  |
-| `PORT`        | Entero de 1 a 65535 | `3000`             |
-
-Los puertos se validan y convierten a números al iniciar. Una configuración
-inválida impide arrancar y reporta los nombres de las variables, sin sus valores.
-La contraseña se conserva exactamente, sin recortar espacios.
-
-NestJS busca `.env` en el directorio de ejecución y después en su padre; el
-primero tiene prioridad. Las variables del proceso tienen prioridad sobre esos
-archivos. Docker Compose lee el `.env` de la raíz.
-
-En AWS se deben inyectar los mismos nombres mediante la configuración del
-servicio y su gestor de secretos; no se necesita distribuir un archivo `.env`.
-`DB_HOST` y `DB_PORT` deben apuntar a la base accesible desde el servicio, y `PORT`
-debe coincidir con el puerto configurado para el backend. No registrar ni
-versionar credenciales. El ejemplo de contraseña es exclusivo del entorno local.
-El despliegue AWS y la configuración TLS de PostgreSQL quedan pendientes.
-
-## Base de datos local
-
-PostgreSQL escucha en `127.0.0.1:5433` desde Windows y en `5432` dentro del
-contenedor. El volumen `postgres_data` conserva los datos. Las variables de
-inicialización de PostgreSQL solo se aplican al crear un volumen vacío; cambiar
-`.env` no cambia automáticamente usuarios ni contraseñas existentes.
-
-Desde la raíz:
-
-```powershell
-docker compose ps
-docker compose logs --tail 50 db
-docker compose stop db
-docker compose up -d db
-```
-
-TypeORM mantiene `synchronize: false` y `migrationsRun: false`. Todavía no hay
-comandos de migración ni seed; se agregarán en la siguiente tarea.
-
-## Verificación
-
-Con PostgreSQL saludable, desde `backend`:
+Desde backend, con PostgreSQL healthy para e2e:
 
 ```powershell
 npm run format:check
@@ -88,34 +63,74 @@ npm run lint:check
 npm run build
 npm test -- --runInBand
 npm run test:e2e -- --runInBand
+npm run test:cov -- --runInBand
 ```
 
-Las pruebas unitarias cubren configuración ausente, vacía, puertos inválidos y
-límites válidos. Las e2e usan la base real configurada: verifican una consulta
-SQL, la ruta inicial, Helmet, Swagger y el ValidationPipe global. No crean tablas
-ni escriben datos. Los endpoints de prueba solo existen en el módulo de tests.
+Para arrancar compilado: `npm run build` y `npm run start:prod`. Los scripts
+existen y la base se comprobó en Windows. Las e2e actuales solo leen PostgreSQL:
+consulta SQL, Hello World, Helmet, Swagger y validación global. Las unitarias
+cubren configuración. No equivalen a pruebas del negocio todavía no creado.
 
-Para generar cobertura: `npm run test:cov -- --runInBand`. El objetivo de cobertura
-del producto completo se verificará al implementar el negocio.
+En esta revisión documental pasaron las 55 pruebas unitarias y las 6 e2e
+existentes con PostgreSQL. No se añadieron pruebas ni se midió cobertura.
 
-Para probar la ejecución compilada:
+La prueba exige **más del 80 % en frontend y backend por separado**; meta >=85 %
+en statements, branches, functions y lines. Cobertura de esta revisión documental:
+no medida; frontend no existe. Al implementar, registrar comando/fecha/commit y
+porcentajes reales de cada proyecto. No atribuir cobertura backend al frontend.
+Escenarios previstos: dinero/overflow, estados, stock concurrente, doble clic,
+idempotencia, aprobado/rechazado, timeout/sync, eventos repetidos, refresh e IDOR.
 
-```powershell
-npm run build
-npm run start:prod
+## API y modelo propuestos
+
+[Contrato API](docs/api-contract.md): catálogo, sesión, checkout/resumen,
+transacciones/pay/sync y webhook. Clientes/destino se capturan por checkout;
+no necesitan CRUD públicos. Productos ficticios mediante seed idempotente.
+
+```mermaid
+erDiagram
+    PRODUCTS ||--o{ CHECKOUTS : selected_in
+    CHECKOUT_SESSIONS ||--o{ CHECKOUTS : owns
+    CUSTOMERS |o--|| CHECKOUTS : identifies_buyer
+    CHECKOUTS ||--o{ TRANSACTIONS : has_attempts
+    PRODUCTS ||--o{ INVENTORY_RESERVATIONS : reserved_as
+    TRANSACTIONS ||--|| INVENTORY_RESERVATIONS : holds
+    CHECKOUTS ||--o| DELIVERIES : fulfilled_by
+    TRANSACTIONS ||--o| DELIVERIES : authorizes
 ```
 
-## Formato y seguridad
+[Modelo detallado](docs/data-model.md): compra distinta de intento; un intento
+activo, importes y datos históricos congelados, stock/reservas y entrega solo al
+aprobar. Montos en centavos calculados por servidor. Bloqueos e índices PostgreSQL
+protegen concurrencia; clave/hash del intento evitan duplicación de cobro.
 
-Git (`.gitattributes`), el editor (`.editorconfig`) y Prettier utilizan LF para
-mantener el mismo formato en Windows y Linux. Se conservan comillas simples y
-comas finales. `npm run format` corrige TypeScript; `npm run lint` conserva el
-comando existente con autocorrección. Los comandos `*:check` solo verifican.
+## Arquitectura y recorrido
 
-Helmet configura cabeceras HTTP. El ValidationPipe global transforma DTOs y
-rechaza propiedades adicionales con `whitelist` y `forbidNonWhitelisted`.
-Las futuras solicitudes de negocio deberán declarar DTOs con validaciones.
-Swagger documenta la base actual y no incluye credenciales.
+[Flujo y decisiones](docs/checkout-flow.md): producto -> tarjeta/entrega -> resumen
+-> resultado -> producto actualizado. Catálogo, Checkout, Payments y Fulfillment
+en un monolito hexagonal: dominio puro, casos de uso con Result/ResultAsync de
+neverthrow, puertos y adaptadores TypeORM/Wompi. Controllers sin lógica de negocio;
+NestJS conecta implementaciones.
 
-`.env`, `node_modules`, `dist`, cobertura y logs están excluidos de Git.
-No hay despliegue, contenedor del backend ni configuración de producción todavía.
+Se eliminan versiones/TTL de cotizaciones: crear intento compara el resumen
+aceptado con el cálculo actual y lo congela. Stock se reserva atómicamente antes
+del cobro. Timeout incierto conserva reserva y bloquea otro envío: webhook y sync
+comparten finalización. Refresh recupera estado desde backend con sesión propia;
+Redux persistido guarda como máximo IDs/paso, nunca tarjeta o tokens.
+
+## AWS y limitaciones
+
+Se mantiene la propuesta AWS: backend en ECS Fargate, PostgreSQL en RDS y SPA en
+S3/CloudFront, mismo origen con /api para backend. No se cambia de proveedor ni
+de arquitectura de despliegue; aún falta implementar y verificar Linux, HTTPS,
+secretos inyectados, TLS/conectividad DB y coste. No hay URLs desplegadas.
+
+Para este assessment no hay scheduler/leases: sync mientras la UI está abierta,
+webhook y revisión manual. Si nadie vuelve y no llega evento, un pago incierto
+puede retener stock hasta revisar; no se declara resuelto por quitar los jobs.
+Recuperar sin ID remoto requiere verificar capacidades UAT; nunca reenviar por
+un timeout o liberar por un not-found aislado. También quedan por validar
+contratos/auth/firma/límites en UAT y confirmar tarifas ficticias propuestas.
+Solo datos ficticios; política de retención y operación con datos reales quedan
+fuera de este alcance. No hay triggers de inmutabilidad: se protege por casos de
+uso/repositorios/tests, sin garantía frente a SQL privilegiado.
