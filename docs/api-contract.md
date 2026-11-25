@@ -1,9 +1,9 @@
-# API: catálogo implementado y checkout propuesto
+# API: catálogo y compra recuperable
 
-**Implementados:** GET `/api/v1/products` y `/api/v1/products/:id`.
-Se conservan GET `/`, `/docs` y `/docs-json`. Las demás operaciones de este
-documento siguen propuestas; no hay endpoints de escritura. Ver [modelo](data-model.md)
-y [flujo](checkout-flow.md).
+**Implementados:** catálogo GET /products y /products/:id; POST /checkout-sessions,
+POST /checkouts, GET/PATCH /checkouts/:id y GET /checkouts/:id/summary, bajo /api/v1.
+GET /, /docs y /docs-json se conservan. Transacciones, cobro, sync y webhook
+siguen **propuestos**. Ver [modelo](data-model.md) y [flujo](checkout-flow.md).
 
 ## Reglas comunes
 
@@ -63,12 +63,12 @@ se envuelven en error.code/error.message. Swagger describe parámetros y respues
 
 ## Endpoints
 
-GET y POST sync no necesitan body; los campos de entrada de las demás rutas se
+GET y POST checkout-sessions no admiten body; POST sync propuesto tampoco lo necesita; los campos de entrada de las demás rutas se
 indican abajo. Los códigos de forma/autorización/infraestructura son comunes.
 
 | Método y ruta bajo /api/v1  | Caso de uso / acceso                            | Entrada                                                  | Éxito y efecto                                                                                          | Errores clave                                                                               |
 | --------------------------- | ----------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| POST /checkout-sessions     | EnsureCheckoutSession / Origin; cookie opcional | Sin cuerpo                                               | 201 nueva o 200 existente; Set-Cookie, devuelve csrfToken y expiresAt; no renueva sesión válida         | 403 Origin, 503                                                                             |
+| POST /checkout-sessions     | EnsureCheckoutSession / Origin; cookie opcional | Sin cuerpo                                               | 201 nueva con Set-Cookie o 200 existente sin renovarla; data.csrfToken y data.expiresAt                 | 403 Origin, 503                                                                             |
 | GET /products               | ListProducts / público                          | Sin query ni cuerpo                                      | 200 lista completa del seed y disponibilidad; sin reservar                                              | 400 query no admitida, 503                                                                  |
 | GET /products/:id           | GetProduct / público                            | UUID                                                     | 200 detalle/precio/stock; sin efectos                                                                   | 404 producto inactivo/inexistente                                                           |
 | POST /checkouts             | CreateCheckout / W                              | productId, quantity                                      | 201 DRAFT; sin reserva                                                                                  | 400 cantidad, 404 producto                                                                  |
@@ -96,8 +96,22 @@ CreateTransaction guarda clave/hash; cambiar entrada con la misma clave es 409.
 Pay compara hash antes de revalidar el estado temporal: replay recupera el estado,
 no reenvía. Con respuesta perdida, GET/sync. GET siempre es lectura local.
 
+PATCH vacío, propiedades desconocidas (también anidadas) y null en campos
+obligatorios devuelven 400 INVALID_REQUEST; se normalizan espacios exteriores.
+La aplicación vuelve a comprobar reglas de negocio y devuelve 422 INVALID_BUYER,
+INVALID_DELIVERY, INVALID_QUANTITY o INVALID_AMOUNT. Error SQL: 503
+PERSISTENCE_UNAVAILABLE sanitizado. PATCH comprueba propiedad/estado bajo lock y
+guarda cliente específico de la compra y delivery_draft en el mismo commit.
+No hay filas deliveries hasta implementar aprobación; no modifica inventario.
+El resumen de producto inactivo o compra bloqueada sin histórico devuelve 409
+CHECKOUT_LOCKED. Las cinco operaciones privadas usan Cache-Control: no-store.
+
+Vista de compra: data contiene id, productId, quantity, status, buyer y delivery
+(objetos o null), activeTransactionId, latestTransactionId y deliveryId (IDs o null).
+[Recorrido PowerShell con cookies/Origin/CSRF](../README.md#probar-compra-recuperable-powershell).
+
 Resumen DRAFT se recalcula con el catálogo/tarifas actuales, sin guardarse.
-CreateTransaction compara **todos** los campos de acceptedSummary con el cálculo
+El futuro CreateTransaction comparará **todos** los campos de acceptedSummary con el cálculo
 servidor bajo lock: 409 si cambió, UI vuelve a mostrar resumen. En intento
 activo o compra pagada, GetSummary devuelve el histórico, sin proponer otro cobro.
 Disponibilidad mostrada es informativa; reservar exige comprobación SQL atómica.

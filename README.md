@@ -6,13 +6,12 @@ móvil y recuperable al refrescar.
 
 ## Estado actual
 
-| Implementado                                                    | Propuesto / pendiente                                               |
-| --------------------------------------------------------------- | ------------------------------------------------------------------- |
-| NestJS 11 + TypeScript, PostgreSQL 17 en Docker, TypeORM 1.1.3  | Casos de uso y endpoints de compra                                  |
-| Money COP y catálogo GET /api/v1/products y /:id                | Checkout, captura de comprador/destino y resumen                    |
-| Entidades ORM, migración inicial y seed idempotente             | Repositorios de negocio, bloqueos y finalización atómica            |
-| Variables validadas, Helmet, ValidationPipe y Swagger           | Sesión/CSRF, pagos sandbox, reservas, idempotencia y reconciliación |
-| GET / devuelve Hello World!; pruebas unitarias y e2e de la base | SPA React, cobertura del negocio, Linux y despliegue AWS            |
+| Implementado                                                            | Propuesto / pendiente                          |
+| ----------------------------------------------------------------------- | ---------------------------------------------- |
+| NestJS 11, PostgreSQL 17, TypeORM 1.1.3; migraciones y seed idempotente | Inicio/finalización del pago y reservas        |
+| Money COP, catálogo y disponibilidad                                    | Wompi sandbox, idempotencia y reconciliación   |
+| Sesión guest/CSRF; crear, guardar y recuperar borrador; resumen         | SPA React y recorrido de cinco pantallas       |
+| Helmet, validación, Swagger, pruebas unitarias/SQL/e2e                  | Cobertura global >80 %, Linux y despliegue AWS |
 
 Frontend acordado: React + TypeScript + Vite, Redux Toolkit/React Redux,
 React Hook Form/Zod, CSS Modules y Flexbox/Grid, Jest/React Testing Library.
@@ -31,6 +30,8 @@ docker compose up -d db
 docker compose ps
 Set-Location backend
 npm ci
+# Generar un secreto y configurar CSRF_SECRET en el .env raíz antes de arrancar:
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 npm run migration:run
 npm run seed:products
 npm run start:dev
@@ -38,21 +39,29 @@ npm run start:dev
 
 Esperar a `db` healthy. API: <http://localhost:3000>, Swagger:
 <http://localhost:3000/docs>, OpenAPI: <http://localhost:3000/docs-json>.
-Swagger ya permite consultar el catálogo; checkout y pagos todavía no están implementados.
+Swagger incluye catálogo y las cinco operaciones de sesión/borrador/resumen. Pagos pendientes.
 Ctrl+C detiene NestJS. PostgreSQL usa `127.0.0.1:5433` desde Windows y volumen
 persistente; `docker compose stop db` lo detiene desde la raíz sin borrar datos.
 
-| Variable obligatoria | Regla / ejemplo local               |
-| -------------------- | ----------------------------------- |
-| DB_HOST              | Texto no vacío; 127.0.0.1           |
-| DB_PORT              | Entero 1..65535; 5433               |
-| DB_NAME              | Texto no vacío; payment_checkout    |
-| DB_USER              | Texto no vacío; checkout            |
-| DB_PASSWORD          | Definir en .env; ejemplo solo local |
-| PORT                 | Entero 1..65535; 3000               |
+| Variable obligatoria | Regla / ejemplo local                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------- |
+| DB_HOST              | Texto no vacío; 127.0.0.1                                                               |
+| DB_PORT              | Entero 1..65535; 5433                                                                   |
+| DB_NAME              | Texto no vacío; payment_checkout                                                        |
+| DB_USER              | Texto no vacío; checkout                                                                |
+| DB_PASSWORD          | Definir en .env; ejemplo solo local                                                     |
+| PORT                 | Entero 1..65535; 3000                                                                   |
+| CSRF_SECRET          | Secreto propio de al menos 32 caracteres; conservar entre reinicios                     |
+| FRONTEND_ORIGINS     | Orígenes exactos separados por coma; local: http://localhost:3000,http://localhost:5173 |
 
 Nest busca .env del directorio de ejecución y después del padre; variables del
 proceso tienen prioridad. Compose lee el .env raíz. No versionar secretos.
+CSRF_SECRET se exige al componer el módulo de checkout. FRONTEND_ORIGINS acepta
+HTTPS o HTTP de localhost/loopback en desarrollo; NODE_ENV=production exige HTTPS.
+La cookie usa Secure con el origen HTTPS permitido y solo omite Secure en HTTP
+local. En AWS inyectar el secreto y el origen HTTPS real; no usar valores locales.
+Aún no hay CORS para un navegador Vite separado: usar mismo origen/proxy cuando
+se implemente el frontend.
 Cambiar .env no cambia credenciales de un volumen PostgreSQL ya inicializado.
 Se conservan synchronize=false y migrationsRun=false: el arranque no crea tablas
 ni ejecuta migraciones. CLI y seed reutilizan validación y precedencia de entorno,
@@ -92,8 +101,61 @@ La disponibilidad se calcula desde stock menos reservas HELD: excluye las
 vencidas NOT_SENT y conserva las comprometidas IN_FLIGHT/SUBMITTED/UNKNOWN.
 Es una consulta, no crea reservas ni descuenta inventario. Imagen y SKU también
 se devuelven. Money solo representa/valida centavos enteros COP entre 0 y
-2000000000; el precio del producto debe ser positivo. No hay tarifas ni resumen
-implementados todavía.
+2000000000; el precio del producto debe ser positivo. El resumen usa multiplicación
+y suma comprobadas de Money; rechaza overflow antes de serializar números.
+
+## Probar compra recuperable (PowerShell)
+
+Con el backend arrancado, ejecutar en **otra terminal**. Datos ficticios; las
+cookies y el CSRF permanecen en memoria de esta terminal, sin imprimirlos:
+
+```powershell
+$base = 'http://localhost:3000/api/v1'
+$origin = 'http://localhost:3000'
+$guest = Invoke-RestMethod -Method Post -Uri "$base/checkout-sessions" -Headers @{ Origin = $origin } -SessionVariable checkoutCookies
+$headers = @{ Origin = $origin; 'X-CSRF-Token' = $guest.data.csrfToken }
+$body = @{ productId = '11111111-1111-4111-8111-111111111111'; quantity = 2 } | ConvertTo-Json
+$draft = Invoke-RestMethod -Method Post -Uri "$base/checkouts" -WebSession $checkoutCookies -Headers $headers -ContentType 'application/json' -Body $body
+$checkoutId = $draft.data.id
+$body = @{
+  buyer = @{ fullName = 'Cliente Ejemplo'; email = 'cliente@example.test'; phone = '+573000000000' }
+  delivery = @{ recipientName = 'Cliente Ejemplo'; phone = '+573000000000'; addressLine1 = 'Calle de ejemplo 1'; city = 'Bogotá'; region = 'Bogotá D.C.'; country = 'CO' }
+} | ConvertTo-Json -Depth 4
+$utf8Body = [System.Text.Encoding]::UTF8.GetBytes($body)
+$saved = Invoke-RestMethod -Method Patch -Uri "$base/checkouts/$checkoutId" -WebSession $checkoutCookies -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $utf8Body
+$recovered = Invoke-RestMethod -Uri "$base/checkouts/$checkoutId" -WebSession $checkoutCookies
+$summary = Invoke-RestMethod -Uri "$base/checkouts/$checkoutId/summary" -WebSession $checkoutCookies
+$summary | ConvertTo-Json -Depth 4
+```
+
+Resultado para dos auriculares: quantity=2, unitPriceCents=12990000,
+subtotalCents=25980000, baseFeeCents=50000, deliveryFeeCents=100000,
+totalCents=26130000, currency=COP. Cada tarifa se aplica una vez.
+
+Para comprobar recuperación, detener/reiniciar NestJS en su terminal conservando
+.env/CSRF_SECRET y PostgreSQL. En la terminal del recorrido conservar las variables:
+
+```powershell
+$again = Invoke-RestMethod -Method Post -Uri "$base/checkout-sessions" -Headers @{ Origin = $origin } -WebSession $checkoutCookies
+if ($again.data.expiresAt -ne $guest.data.expiresAt) { throw 'La sesión cambió' }
+$restored = Invoke-RestMethod -Uri "$base/checkouts/$checkoutId" -WebSession $checkoutCookies
+if ($restored.data.id -ne $checkoutId -or $restored.data.buyer.email -ne 'cliente@example.test') { throw 'No se recuperó el borrador' }
+$other = Invoke-RestMethod -Method Post -Uri "$base/checkout-sessions" -Headers @{ Origin = $origin } -SessionVariable otherCookies
+try {
+  Invoke-RestMethod -Uri "$base/checkouts/$checkoutId" -WebSession $otherCookies
+  throw 'Se permitió acceso ajeno'
+} catch {
+  if ($null -eq $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 404) { throw }
+  'Acceso desde otra sesión: 404'
+}
+```
+
+La sesión dura 24 h sin renovarse. GET no escribe; recuperar requiere cookie e ID.
+PATCH acepta quantity y/o objetos completos buyer/delivery, solo en DRAFT.
+Comprador y destino se guardan juntos bajo lock SQL; clientes no se comparten por
+email. Un borrador no reserva ni descuenta stock ni crea entregas. Resumen
+incompleto devuelve 422; con intento activo/aprobado lee sus importes históricos.
+No hay aún rutas para crear dichos intentos. Véase el contrato para errores.
 
 ## Migraciones y seed
 
@@ -136,41 +198,43 @@ npm run test:integration
 npm run test:cov -- --runInBand
 ```
 
-Para arrancar compilado: `npm run build` y `npm run start:prod`. Los scripts
-existen y la base se comprobó en Windows. Las e2e comprueban HTTP, catálogo,
-Hello World, Helmet, Swagger y validación global; el catálogo usa fixtures en
-bases aisladas. Las unitarias cubren configuración, Money y casos de consulta.
-No equivalen a pruebas del checkout todavía no implementado.
+Para arrancar compilado: `npm run build` y `npm run start:prod`. Verificado en
+Windows con PostgreSQL 17 de Docker: **117 unitarias, 23 integración y 28 e2e**.
+Las unitarias prueban configuración, dinero y casos de uso; integración comprueba
+restricciones/seed y repositorio de borradores; e2e comprueba HTTP de catálogo y
+sesión/compra. Integración/e2e crean bases aleatorias
+payment_checkout_test_<aleatorio>, migran, inicializan y eliminan solo su propia
+base. Requieren CREATEDB; no limpian DB_NAME. El recorrido e2e comprueba
+Origin/CSRF, sesión vencida, validaciones, acceso ajeno, rollback, bloqueo de
+compras, importes históricos y recuperación al recrear la aplicación. No procesa
+pagos. La CLI se verificó en Windows, no en Linux/AWS.
 
-Verificado en Windows: 88 unitarias, 22 de integración y 22 e2e. Las pruebas
-nuevas de catálogo usan bases aisladas; sus fixtures no alteran desarrollo.
-La integración crea payment_checkout_test_<aleatorio> desde cero, migra, prueba
-restricciones/seed, revierte/reaplica y elimina esa base. Requiere que DB_USER
-pueda CREATE DATABASE en el servidor local; nunca limpia la base DB_NAME.
-También se comprobaron los comandos CLI en otra base temporal, incluida
-migration:generate con --check sin cambios. En este bloque se verificó la identidad
-del PostgreSQL local de Docker. Están aplicadas InitialSchema1795632838292 y
-AddProductCategory1795643379559. Seed repetido sin cambios, stock original y
-reservas/históricos preservados. La transición de un original personalizado y su
-rollback se probaron solo en base aislada.
+La DB local conserva InitialSchema1795632838292 y AddProductCategory1795643379559.
+Esta etapa reutiliza sus tablas sin cambiar migraciones, dependencias ni seed.
 
 La prueba exige **más del 80 % en frontend y backend por separado**; meta >=85 %
 en statements, branches, functions y lines. Medición unitaria del 2026-11-25,
-base ad2bf8ff + cambios Money/catálogo/categoría sin commit, con
+base de catálogo c387681a + bloque de sesión/borrador/resumen, con
 `npm test -- --runInBand --coverage --coverageReporters=text`:
 
 | Alcance                                             | Statements | Branches | Functions | Lines   |
 | --------------------------------------------------- | ---------- | -------- | --------- | ------- |
-| Backend global, todo src con exclusiones existentes | 16,31 %    | 30,08 %  | 24,24 %   | 16,15 % |
+| Backend global, todo src con exclusiones existentes | 24,39 %    | 35,14 %  | 33,33 %   | 24,85 % |
+| Nuevo dominio checkout.ts                           | 98,41 %    | 98,36 %  | 100 %     | 98,36 % |
+| Nuevos casos de uso checkout-cases.ts               | 100 %      | 100 %    | 100 %     | 100 %   |
+| Money (incluidas suma/multiplicación)               | 100 %      | 100 %    | 100 %     | 100 %   |
+| Nuevos HTTP/TypeORM y composición (unitaria)        | 0 %        | 0 %      | 0 %       | 0 %     |
 
 El >80 % global sigue **pendiente**. No se incluyen integración/e2e en esas
 métricas; tampoco se cambiaron exclusiones. Money y los casos ListProducts y
-GetProduct tienen 100 % en sus cuatro métricas. Frontend aún no existe y no
+GetProduct tienen 100 % en sus cuatro métricas. Los adaptadores nuevos se prueban
+por integración/e2e y no suman a esta medición unitaria; módulos, DTOs, entidades,
+migraciones y adaptadores siguen incluidos en el denominador. Frontend aún no existe y no
 tiene cobertura; no se le atribuye la del backend.
 Escenarios previstos: dinero/overflow, estados, stock concurrente, doble clic,
 idempotencia, aprobado/rechazado, timeout/sync, eventos repetidos, refresh e IDOR.
 
-## API propuesta y modelo persistido
+## API y modelo persistido
 
 [Contrato API](docs/api-contract.md) y [OpenAPI exportado](docs/openapi.json): catálogo, sesión, checkout/resumen,
 transacciones/pay/sync y webhook. Clientes/destino se capturan por checkout;
@@ -191,8 +255,9 @@ erDiagram
 [Modelo detallado](docs/data-model.md): compra distinta de intento; un intento
 activo, importes y datos históricos congelados, stock/reservas y entrega solo al
 aprobar. Money valida los importes del catálogo sin framework. Los índices PostgreSQL
-aportan restricciones de unicidad; los casos de uso que aplicarán bloqueos,
-compararán hashes y coordinarán cobro/inventario/entrega siguen pendientes.
+aportan restricciones de unicidad. PATCH bloquea su checkout y guarda cliente y
+destino en una sola transacción. Coordinar cobro/inventario/entrega y comparar
+hashes de los intentos sigue pendiente.
 
 ## Arquitectura y recorrido
 

@@ -6,10 +6,12 @@ import { AppService } from './app.service';
 import { validateEnvironment } from './config/environment';
 import { createDatabaseOptions } from './infrastructure/database/database-options';
 import { CatalogModule } from './catalog/catalog.module';
+import { CheckoutModule } from './checkout/checkout.module';
 
 @Module({
   imports: [
     CatalogModule,
+    CheckoutModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env', '../.env'],

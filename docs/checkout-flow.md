@@ -1,6 +1,6 @@
 # Recorrido y reglas de checkout
 
-**Money y lectura del catálogo implementados; el resto del recorrido sigue propuesto.**
+**Backend de catálogo, sesión, borrador recuperable y resumen implementado; pagos y frontend pendientes.**
 Ver [modelo](data-model.md), [contrato HTTP](api-contract.md) y [estado actual](../README.md).
 
 ## Cinco pantallas
@@ -13,7 +13,7 @@ Ver [modelo](data-model.md), [contrato HTTP](api-contract.md) y [estado actual](
 | 4. Resultado         | GetTransaction/SyncPayment muestran pendiente, aprobado o rechazado. Nunca interpretar una redirección del navegador como aprobación.                                                    |
 | 5. Producto          | Consultar de nuevo disponibilidad y permitir otra compra. Una compra pagada no se reutiliza para cobrar.                                                                                 |
 
-Tarifas ficticias propuestas: base 50000 y entrega 100000 centavos por compra,
+Tarifas ficticias implementadas en el resumen: base 50000 y entrega 100000 centavos por compra,
 COP y una cuota. Ejemplo: 2 × 12990000 + 50000 + 100000 = 26130000. Confirmar estos
 valores y los límites del proveedor antes de implementar la integración.
 
@@ -40,15 +40,17 @@ Las flechas son dependencias de código. Checkout consume contratos de Catalog,
 Payments y Fulfillment; estos no importan Checkout. El webhook es una entrada
 de Checkout que utiliza el verificador de Payments. NestJS conecta dependencias.
 
-Organizar cada funcionalidad en `domain/`, `application/` y `adapters/`.
+La estructura existente usa `domain/`, `application/` e `infrastructure/`.
 Dominio contiene entidades/reglas puras, sin NestJS, HTTP o TypeORM. Aplicación
 contiene casos de uso y puertos; adaptadores contienen controllers/DTOs,
 entidades ORM y cliente del proveedor. Dominio y ORM son modelos separados con
 mappers. Money puro se comparte entre catálogo y compra, sin crear un shared
 de servicios globales.
 
-Puertos suficientes: CatalogReader, CheckoutReader, SessionStore, PaymentGateway
-y CheckoutUnitOfWork. Esta última proporciona stores concretos de compra,
+Implementados ProductRepository, SessionStore, SessionTokens y CheckoutStore.
+CheckoutStore encapsula la transacción y el lock del borrador; no expone SQL.
+Para pagos siguen propuestos PaymentGateway y CheckoutUnitOfWork. Esta última
+proporcionaría stores concretos de compra,
 intento, reserva y entrega ligados a una sola transacción; no expone
 EntityManager al núcleo ni se convierte en repositorio CRUD universal.
 Controllers validan forma/autorizan y traducen resultados, no calculan ni cobran.
@@ -159,7 +161,8 @@ manual. Mientras tanto stock incierto permanece reservado. Un scheduler solo se
 añadiría en otra tarea si se requiere recuperación independiente del navegador.
 
 Cookie guest HttpOnly, SameSite=Lax, Secure en HTTPS, digest en DB y vigencia de
-24 h; desarrollo local permite HTTP. Autorización por sesión propietaria en cada
+24 h sin renovación; desarrollo local permite HTTP. Implementado con token
+aleatorio de 256 bits, SHA-256 en DB y CSRF HMAC-SHA256 con CSRF_SECRET estable. Autorización por sesión propietaria en cada
 compra/intento. Origin permitido + token CSRF vinculado a la sesión para
 escrituras; emitir/recuperar CSRF al iniciar sesión. Mismo origen en AWS; en Vite
 local configurar CORS con origen exacto y credentials cuando exista frontend.
@@ -212,6 +215,8 @@ Ya existen pruebas de persistencia para migración/seed, restricciones, relacion
 índices, dos inserciones concurrentes de intento activo y disponibilidad del
 catálogo (reservas vigentes, liberadas y vencidas con envío incierto), transición
 segura del catálogo de diez productos y rechazo de query no admitida. Money y
-consulta de productos tienen pruebas unitarias; las rutas 200/400/404/503 tienen e2e. Las pruebas del
-recorrido, locks de inventario y finalización de pagos siguen **pendientes**;
-la persistencia no implementa esos casos de uso.
+consulta de productos tienen pruebas unitarias. Sesión y casos de borrador/resumen
+se prueban sin Nest/SQL; integración comprueba clientes por compra y escrituras
+concurrentes bajo lock. E2e con DB aislada cubre autorización, validación, resumen,
+rollback, histórico y recuperación al recrear NestJS. Locks de inventario, cobros y
+finalización siguen **pendientes**. El código nuevo no cambia esas tablas.

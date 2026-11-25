@@ -2,8 +2,10 @@
 
 **Persistencia implementada:** siete entidades TypeORM en infraestructura,
 migración inicial y seed, verificados en PostgreSQL aislado y aplicados localmente.
-Lectura del catálogo implementada; escrituras y coordinación de compra/pagos
-siguen pendientes.
+Lectura del catálogo y persistencia de sesión/borrador implementadas. SessionStore
+guarda digest/expiración; CheckoutStore consulta por propietario y bloquea la compra
+al editar. Cliente por compra y delivery_draft se guardan en un único commit;
+no se crean entregas, intentos ni reservas. Coordinación de pagos pendiente.
 Una compra contiene un producto y cantidad; puede
 conservar varios intentos de pago, solo uno activo. Ver [flujo](checkout-flow.md)
 y [API](api-contract.md).

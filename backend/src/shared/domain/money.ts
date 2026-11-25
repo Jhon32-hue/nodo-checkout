@@ -7,6 +7,21 @@ export type InvalidMoney = {
 };
 
 export class Money {
+  add(other: Money): Result<Money, InvalidMoney> {
+    return Money.fromCents(
+      Number(BigInt(this.cents) + BigInt(other.cents)),
+      this.currency,
+    );
+  }
+
+  multiply(quantity: number): Result<Money, InvalidMoney> {
+    if (!Number.isSafeInteger(quantity) || quantity < 0)
+      return err({ kind: 'InvalidMoney', reason: 'InvalidAmount' });
+    const value = BigInt(this.cents) * BigInt(quantity);
+    if (value > BigInt(MAX_MONEY_CENTS))
+      return err({ kind: 'InvalidMoney', reason: 'InvalidAmount' });
+    return Money.fromCents(Number(value), this.currency);
+  }
   private constructor(
     readonly cents: number,
     readonly currency: 'COP',

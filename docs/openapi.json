@@ -158,6 +158,713 @@
         "summary": "Consultar producto y unidades disponibles",
         "tags": ["products"]
       }
+    },
+    "/api/v1/checkout-sessions": {
+      "post": {
+        "operationId": "CheckoutsController_session",
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "description": "Obligatorio en POST/PATCH de compra",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "description": "Origen permitido, obligatorio para escrituras",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Cookie",
+            "in": "header",
+            "description": "checkout_session recibida al crear sesiÃ³n",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SesiÃ³n existente, mismo vencimiento.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": ["csrfToken", "expiresAt"],
+                      "properties": {
+                        "csrfToken": {
+                          "type": "string"
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "SesiÃ³n nueva, data.csrfToken y data.expiresAt; cookie HttpOnly.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": ["csrfToken", "expiresAt"],
+                      "properties": {
+                        "csrfToken": {
+                          "type": "string"
+                        },
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Formato o campos no admitidos."
+          },
+          "401": {
+            "description": "SesiÃ³n ausente o vencida."
+          },
+          "403": {
+            "description": "Origin o CSRF invÃ¡lidos."
+          },
+          "404": {
+            "description": "Recurso inexistente o de otra sesiÃ³n."
+          },
+          "409": {
+            "description": "Compra bloqueada para ediciÃ³n."
+          },
+          "422": {
+            "description": "Reglas de negocio o compra incompleta."
+          },
+          "503": {
+            "description": "Persistencia temporalmente no disponible."
+          }
+        },
+        "summary": "Crear o recuperar sesiÃ³n guest sin renovar vencimiento",
+        "tags": ["checkout"]
+      }
+    },
+    "/api/v1/checkouts": {
+      "post": {
+        "operationId": "CheckoutsController_createDraft",
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "description": "Obligatorio en POST/PATCH de compra",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "description": "Origen permitido, obligatorio para escrituras",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Cookie",
+            "in": "header",
+            "description": "checkout_session recibida al crear sesiÃ³n",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCheckoutDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Compra creada con buyer/delivery vacÃ­os y referencias de transacciones null.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "productId",
+                        "quantity",
+                        "status",
+                        "buyer",
+                        "delivery",
+                        "activeTransactionId",
+                        "latestTransactionId",
+                        "deliveryId"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "productId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "quantity": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 99
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["DRAFT", "PAYMENT_PENDING", "PAID"]
+                        },
+                        "buyer": {
+                          "oneOf": [
+                            {
+                              "$ref": "#/components/schemas/BuyerDto"
+                            },
+                            {
+                              "type": "object",
+                              "nullable": true,
+                              "enum": [null]
+                            }
+                          ]
+                        },
+                        "delivery": {
+                          "oneOf": [
+                            {
+                              "$ref": "#/components/schemas/DeliveryDto"
+                            },
+                            {
+                              "type": "object",
+                              "nullable": true,
+                              "enum": [null]
+                            }
+                          ]
+                        },
+                        "activeTransactionId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "nullable": true
+                        },
+                        "latestTransactionId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "nullable": true
+                        },
+                        "deliveryId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Formato o campos no admitidos."
+          },
+          "401": {
+            "description": "SesiÃ³n ausente o vencida."
+          },
+          "403": {
+            "description": "Origin o CSRF invÃ¡lidos."
+          },
+          "404": {
+            "description": "Recurso inexistente o de otra sesiÃ³n."
+          },
+          "409": {
+            "description": "Compra bloqueada para ediciÃ³n."
+          },
+          "422": {
+            "description": "Reglas de negocio o compra incompleta."
+          },
+          "503": {
+            "description": "Persistencia temporalmente no disponible."
+          }
+        },
+        "summary": "Seleccionar producto/cantidad; crear DRAFT sin reservar",
+        "tags": ["checkout"]
+      }
+    },
+    "/api/v1/checkouts/{id}": {
+      "get": {
+        "operationId": "CheckoutsController_get",
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "description": "Obligatorio en POST/PATCH de compra",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "description": "Origen permitido, obligatorio para escrituras",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Cookie",
+            "in": "header",
+            "description": "checkout_session recibida al crear sesiÃ³n",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "data: id, productId, quantity, status, buyer, delivery, activeTransactionId, latestTransactionId y deliveryId.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "productId",
+                        "quantity",
+                        "status",
+                        "buyer",
+                        "delivery",
+                        "activeTransactionId",
+                        "latestTransactionId",
+                        "deliveryId"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "productId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "quantity": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 99
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["DRAFT", "PAYMENT_PENDING", "PAID"]
+                        },
+                        "buyer": {
+                          "oneOf": [
+                            {
+                              "$ref": "#/components/schemas/BuyerDto"
+                            },
+                            {
+                              "type": "object",
+                              "nullable": true,
+                              "enum": [null]
+                            }
+                          ]
+                        },
+                        "delivery": {
+                          "oneOf": [
+                            {
+                              "$ref": "#/components/schemas/DeliveryDto"
+                            },
+                            {
+                              "type": "object",
+                              "nullable": true,
+                              "enum": [null]
+                            }
+                          ]
+                        },
+                        "activeTransactionId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "nullable": true
+                        },
+                        "latestTransactionId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "nullable": true
+                        },
+                        "deliveryId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Formato o campos no admitidos."
+          },
+          "401": {
+            "description": "SesiÃ³n ausente o vencida."
+          },
+          "403": {
+            "description": "Origin o CSRF invÃ¡lidos."
+          },
+          "404": {
+            "description": "Recurso inexistente o de otra sesiÃ³n."
+          },
+          "409": {
+            "description": "Compra bloqueada para ediciÃ³n."
+          },
+          "422": {
+            "description": "Reglas de negocio o compra incompleta."
+          },
+          "503": {
+            "description": "Persistencia temporalmente no disponible."
+          }
+        },
+        "summary": "Recuperar compra propia desde PostgreSQL",
+        "tags": ["checkout"]
+      },
+      "patch": {
+        "operationId": "CheckoutsController_patch",
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "description": "Obligatorio en POST/PATCH de compra",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "description": "Origen permitido, obligatorio para escrituras",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Cookie",
+            "in": "header",
+            "description": "checkout_session recibida al crear sesiÃ³n",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchCheckoutDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Vista de compra actualizada, sin crear entrega ni reservar stock.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "productId",
+                        "quantity",
+                        "status",
+                        "buyer",
+                        "delivery",
+                        "activeTransactionId",
+                        "latestTransactionId",
+                        "deliveryId"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "productId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "quantity": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 99
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["DRAFT", "PAYMENT_PENDING", "PAID"]
+                        },
+                        "buyer": {
+                          "oneOf": [
+                            {
+                              "$ref": "#/components/schemas/BuyerDto"
+                            },
+                            {
+                              "type": "object",
+                              "nullable": true,
+                              "enum": [null]
+                            }
+                          ]
+                        },
+                        "delivery": {
+                          "oneOf": [
+                            {
+                              "$ref": "#/components/schemas/DeliveryDto"
+                            },
+                            {
+                              "type": "object",
+                              "nullable": true,
+                              "enum": [null]
+                            }
+                          ]
+                        },
+                        "activeTransactionId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "nullable": true
+                        },
+                        "latestTransactionId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "nullable": true
+                        },
+                        "deliveryId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Formato o campos no admitidos."
+          },
+          "401": {
+            "description": "SesiÃ³n ausente o vencida."
+          },
+          "403": {
+            "description": "Origin o CSRF invÃ¡lidos."
+          },
+          "404": {
+            "description": "Recurso inexistente o de otra sesiÃ³n."
+          },
+          "409": {
+            "description": "Compra bloqueada para ediciÃ³n."
+          },
+          "422": {
+            "description": "Reglas de negocio o compra incompleta."
+          },
+          "503": {
+            "description": "Persistencia temporalmente no disponible."
+          }
+        },
+        "summary": "Guardar campos completos del borrador atÃ³micamente",
+        "tags": ["checkout"]
+      }
+    },
+    "/api/v1/checkouts/{id}/summary": {
+      "get": {
+        "operationId": "CheckoutsController_getSummary",
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "description": "Obligatorio en POST/PATCH de compra",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "description": "Origen permitido, obligatorio para escrituras",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Cookie",
+            "in": "header",
+            "description": "checkout_session recibida al crear sesiÃ³n",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "data: quantity, unitPriceCents, subtotalCents, baseFeeCents, deliveryFeeCents, totalCents y currency.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "quantity",
+                        "unitPriceCents",
+                        "subtotalCents",
+                        "baseFeeCents",
+                        "deliveryFeeCents",
+                        "totalCents",
+                        "currency"
+                      ],
+                      "properties": {
+                        "quantity": {
+                          "type": "integer"
+                        },
+                        "unitPriceCents": {
+                          "type": "integer"
+                        },
+                        "subtotalCents": {
+                          "type": "integer"
+                        },
+                        "baseFeeCents": {
+                          "type": "integer"
+                        },
+                        "deliveryFeeCents": {
+                          "type": "integer"
+                        },
+                        "totalCents": {
+                          "type": "integer"
+                        },
+                        "currency": {
+                          "type": "string",
+                          "enum": ["COP"]
+                        }
+                      }
+                    }
+                  },
+                  "example": {
+                    "data": {
+                      "quantity": 2,
+                      "unitPriceCents": 12990000,
+                      "subtotalCents": 25980000,
+                      "baseFeeCents": 50000,
+                      "deliveryFeeCents": 100000,
+                      "totalCents": 26130000,
+                      "currency": "COP"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Formato o campos no admitidos."
+          },
+          "401": {
+            "description": "SesiÃ³n ausente o vencida."
+          },
+          "403": {
+            "description": "Origin o CSRF invÃ¡lidos."
+          },
+          "404": {
+            "description": "Recurso inexistente o de otra sesiÃ³n."
+          },
+          "409": {
+            "description": "Compra bloqueada para ediciÃ³n."
+          },
+          "422": {
+            "description": "Reglas de negocio o compra incompleta."
+          },
+          "503": {
+            "description": "Persistencia temporalmente no disponible."
+          }
+        },
+        "summary": "Resumen calculado en centavos COP; histÃ³rico si hay intento activo/aprobado",
+        "tags": ["checkout"]
+      }
     }
   },
   "info": {
@@ -299,6 +1006,112 @@
           }
         },
         "required": ["data"]
+      },
+      "BuyerDto": {
+        "type": "object",
+        "properties": {
+          "fullName": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 16,
+            "pattern": "^\\+[1-9]\\d{1,14}$"
+          }
+        },
+        "required": ["fullName", "email", "phone"]
+      },
+      "DeliveryDto": {
+        "type": "object",
+        "properties": {
+          "recipientName": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 16,
+            "pattern": "^\\+[1-9]\\d{1,14}$"
+          },
+          "addressLine1": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 200
+          },
+          "addressLine2": {
+            "type": "string",
+            "nullable": true,
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "city": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 100
+          },
+          "region": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 100
+          },
+          "country": {
+            "type": "string",
+            "enum": ["CO"]
+          },
+          "postalCode": {
+            "type": "string",
+            "nullable": true,
+            "minLength": 1,
+            "maxLength": 12
+          }
+        },
+        "required": [
+          "recipientName",
+          "phone",
+          "addressLine1",
+          "city",
+          "region",
+          "country"
+        ]
+      },
+      "CreateCheckoutDto": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 99
+          }
+        },
+        "required": ["productId", "quantity"]
+      },
+      "PatchCheckoutDto": {
+        "type": "object",
+        "properties": {
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 99
+          },
+          "buyer": {
+            "$ref": "#/components/schemas/BuyerDto"
+          },
+          "delivery": {
+            "$ref": "#/components/schemas/DeliveryDto"
+          }
+        }
       }
     }
   }

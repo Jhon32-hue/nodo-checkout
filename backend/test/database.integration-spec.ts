@@ -16,6 +16,7 @@ import { CheckoutOrmEntity } from '../src/checkout/infrastructure/typeorm/checko
 import { TransactionOrmEntity } from '../src/checkout/infrastructure/typeorm/transaction.entity';
 import { DeliveryOrmEntity } from '../src/fulfillment/infrastructure/typeorm/delivery.entity';
 import { TypeOrmProductRepository } from '../src/catalog/infrastructure/typeorm/typeorm-product.repository';
+import { TypeOrmCheckoutStore } from '../src/checkout/infrastructure/typeorm/checkout.store';
 
 describe('PostgreSQL persistence (isolated database)', () => {
   let admin: Client;
@@ -594,6 +595,42 @@ describe('PostgreSQL persistence (isolated database)', () => {
     await source.query('TRUNCATE TABLE products CASCADE');
     await source.runMigrations();
     await seedProducts(source);
+  });
+
+  it('serializes draft writes, scopes reads and keeps customers specific to each purchase', async () => {
+    const session = await source.manager.save(CheckoutSessionOrmEntity, {
+      id: randomUUID(),
+      tokenDigest: randomBytes(32),
+      expiresAt: new Date(Date.now() + 86400000),
+    });
+    const store = new TypeOrmCheckoutStore(source);
+    const first = await store.create(session.id, catalogProducts[0].id, 2);
+    const second = await store.create(session.id, catalogProducts[0].id, 1);
+    if (first.isErr() || second.isErr())
+      throw new Error('Invalid draft fixture');
+    const buyer = {
+      fullName: 'Cliente Prueba',
+      email: 'same@example.test',
+      phone: '+573000000000',
+    };
+    const before = await source.getRepository(CustomerOrmEntity).count();
+    const results = await Promise.all([
+      store.update(session.id, first.value.id, { buyer, quantity: 3 }),
+      store.update(session.id, first.value.id, { buyer, quantity: 4 }),
+      store.update(session.id, second.value.id, { buyer }),
+    ]);
+    expect(results.every((result) => result.isOk())).toBe(true);
+    expect(await source.getRepository(CustomerOrmEntity).count()).toBe(
+      before + 2,
+    );
+    const rows = await source
+      .getRepository(CheckoutOrmEntity)
+      .findBy({ sessionId: session.id });
+    expect(new Set(rows.map((row) => row.customerId)).size).toBe(2);
+    const own = await store.get(session.id, first.value.id);
+    expect(own.isOk() && [3, 4].includes(own.value.view.quantity)).toBe(true);
+    const foreign = await store.get(randomUUID(), first.value.id);
+    expect(foreign.isErr() && foreign.error.kind).toBe('RESOURCE_NOT_FOUND');
   });
 
   it('reverts and reapplies the schema on the disposable database', async () => {
