@@ -5,9 +5,11 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { validateEnvironment } from './config/environment';
 import { createDatabaseOptions } from './infrastructure/database/database-options';
+import { CatalogModule } from './catalog/catalog.module';
 
 @Module({
   imports: [
+    CatalogModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env', '../.env'],

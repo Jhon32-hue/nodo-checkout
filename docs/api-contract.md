@@ -1,7 +1,8 @@
-# API propuesta
+# API: catálogo implementado y checkout propuesto
 
-**No implementada todavía.** Actualmente existen GET `/`, `/docs` y `/docs-json`.
-El prefijo `/api/v1` corresponde al futuro negocio. Ver [modelo](data-model.md)
+**Implementados:** GET `/api/v1/products` y `/api/v1/products/:id`.
+Se conservan GET `/`, `/docs` y `/docs-json`. Las demás operaciones de este
+documento siguen propuestas; no hay endpoints de escritura. Ver [modelo](data-model.md)
 y [flujo](checkout-flow.md).
 
 ## Reglas comunes
@@ -18,8 +19,47 @@ como autoridad, IDs remotos arbitrarios ni estados aprobados enviados por UI.
 - Content-Type application/json en requests con cuerpo; respuestas privadas
   Cache-Control: no-store. No ETag, If-Match, cursor, versión ni TTL de resumen.
 - Formato de éxito `{ "data": ... }`; error `{ "error": { "code": "...",
-"message": "..." } }`. requestId en logs/header para correlacionar, sin cuerpos
-  de tarjeta, tokens, cookies, datos de comprador o direcciones.
+"message": "..." } }`. requestId/correlación permanece propuesto; no se implementó
+  middleware adicional en este bloque. Nunca registrar cuerpos de tarjeta, tokens,
+  cookies, datos de comprador o direcciones.
+
+## Catálogo disponible
+
+El catálogo tiene diez productos tecnológicos. category es audio, computacion,
+accesorios, almacenamiento u hogar-inteligente; admite null solo para registros
+ajenos preexistentes sin clasificar. No hay filtros ni CRUD de categorías.
+
+Ambas consultas son públicas y devuelven Cache-Control: no-store. Listado:
+`{ "data": { "items": [...] } }`, orden por ID; detalle real de los auriculares:
+
+```json
+{
+  "data": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "sku": "AUD-001",
+    "category": "audio",
+    "name": "Auriculares inalámbricos Nova",
+    "description": "Auriculares Bluetooth con micrófono integrado, controles táctiles y estuche de carga USB-C. Diseño compacto para llamadas, música y uso diario. Incluyen cable de carga y almohadillas.",
+    "imageUrl": "https://placehold.co/800x600/png?text=Auriculares",
+    "unitPriceCents": 12990000,
+    "currency": "COP",
+    "available": 10
+  }
+}
+```
+
+El parlante conserva ID `22222222-2222-4222-8222-222222222222`, precio 17990000
+centavos COP y disponibilidad local 5 al verificar. Valores reales cambian si
+se consume stock; el seed no los repone. Productos inactivos se ocultan; los
+agotados siguen devolviendo 200 con available=0. Orden por UUID ascendente, sin paginación ni duplicados.
+Cualquier query, incluido limit/cursor, devuelve 400 INVALID_QUERY_PARAMS.
+[OpenAPI exportado desde /docs-json](openapi.json). Las imageUrl son placeholders
+PNG de texto verificados por HTTP, no imágenes físicas del producto.
+
+Detalle: 400 INVALID_PRODUCT_ID para formato distinto de UUID v4; 404
+PRODUCT_NOT_FOUND para inexistente/inactivo. Ambas rutas pueden devolver 503
+CATALOG_UNAVAILABLE, sin mensajes internos de PostgreSQL. Los códigos de error
+se envuelven en error.code/error.message. Swagger describe parámetros y respuestas.
 
 ## Endpoints
 
@@ -29,7 +69,7 @@ indican abajo. Los códigos de forma/autorización/infraestructura son comunes.
 | Método y ruta bajo /api/v1  | Caso de uso / acceso                            | Entrada                                                  | Éxito y efecto                                                                                          | Errores clave                                                                               |
 | --------------------------- | ----------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | POST /checkout-sessions     | EnsureCheckoutSession / Origin; cookie opcional | Sin cuerpo                                               | 201 nueva o 200 existente; Set-Cookie, devuelve csrfToken y expiresAt; no renueva sesión válida         | 403 Origin, 503                                                                             |
-| GET /products               | ListProducts / público                          | Sin query ni cuerpo                                      | 200 lista completa del seed y disponibilidad; sin reservar                                              | 503                                                                                         |
+| GET /products               | ListProducts / público                          | Sin query ni cuerpo                                      | 200 lista completa del seed y disponibilidad; sin reservar                                              | 400 query no admitida, 503                                                                  |
 | GET /products/:id           | GetProduct / público                            | UUID                                                     | 200 detalle/precio/stock; sin efectos                                                                   | 404 producto inactivo/inexistente                                                           |
 | POST /checkouts             | CreateCheckout / W                              | productId, quantity                                      | 201 DRAFT; sin reserva                                                                                  | 400 cantidad, 404 producto                                                                  |
 | GET /checkouts/:id          | GetCheckout / S                                 | UUID                                                     | 200 comprador/destino propios, status, activeTransactionId y latestTransactionId; restaura formulario   | 404                                                                                         |
@@ -98,11 +138,11 @@ Respuesta GET summary; total no se guarda otra vez en la base:
 {
   "data": {
     "quantity": 2,
-    "unitPriceCents": 250000,
-    "subtotalCents": 500000,
+    "unitPriceCents": 12990000,
+    "subtotalCents": 25980000,
     "baseFeeCents": 50000,
     "deliveryFeeCents": 100000,
-    "totalCents": 650000,
+    "totalCents": 26130000,
     "currency": "COP"
   }
 }
@@ -115,7 +155,7 @@ Crear intento, Idempotency-Key `55555555-5555-4555-8555-555555555555`:
   "checkoutId": "22222222-2222-4222-8222-222222222222",
   "acceptedSummary": {
     "quantity": 2,
-    "unitPriceCents": 250000,
+    "unitPriceCents": 12990000,
     "baseFeeCents": 50000,
     "deliveryFeeCents": 100000,
     "currency": "COP"

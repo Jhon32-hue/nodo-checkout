@@ -9,6 +9,7 @@ móvil y recuperable al refrescar.
 | Implementado                                                    | Propuesto / pendiente                                               |
 | --------------------------------------------------------------- | ------------------------------------------------------------------- |
 | NestJS 11 + TypeScript, PostgreSQL 17 en Docker, TypeORM 1.1.3  | Casos de uso y endpoints de compra                                  |
+| Money COP y catálogo GET /api/v1/products y /:id                | Checkout, captura de comprador/destino y resumen                    |
 | Entidades ORM, migración inicial y seed idempotente             | Repositorios de negocio, bloqueos y finalización atómica            |
 | Variables validadas, Helmet, ValidationPipe y Swagger           | Sesión/CSRF, pagos sandbox, reservas, idempotencia y reconciliación |
 | GET / devuelve Hello World!; pruebas unitarias y e2e de la base | SPA React, cobertura del negocio, Linux y despliegue AWS            |
@@ -37,7 +38,7 @@ npm run start:dev
 
 Esperar a `db` healthy. API: <http://localhost:3000>, Swagger:
 <http://localhost:3000/docs>, OpenAPI: <http://localhost:3000/docs-json>.
-Son rutas locales actuales; los endpoints de negocio aún no aparecen en Swagger.
+Swagger ya permite consultar el catálogo; checkout y pagos todavía no están implementados.
 Ctrl+C detiene NestJS. PostgreSQL usa `127.0.0.1:5433` desde Windows y volumen
 persistente; `docker compose stop db` lo detiene desde la raíz sin borrar datos.
 
@@ -58,6 +59,42 @@ ni ejecuta migraciones. CLI y seed reutilizan validación y precedencia de entor
 incluyendo .env UTF-8 con BOM de Windows. Linux no se ha verificado como runtime
 del backend; PostgreSQL sí se ejecuta en contenedor Linux.
 
+## Probar catálogo en Swagger
+
+Con la API arrancada, abrir <http://localhost:3000/docs> y desplegar **products**:
+
+1. GET `/api/v1/products`: Try it out -> Execute. Devuelve todos los productos
+   activos, incluidos los agotados, sin paginación. limit, cursor y filtros se
+   rechazan con 400 INVALID_QUERY_PARAMS, no se ignoran.
+2. GET `/api/v1/products/{id}`: usar `11111111-1111-4111-8111-111111111111`
+   (auriculares) o `22222222-2222-4222-8222-222222222222` (parlante).
+3. Un identificador `invalid-id` devuelve 400; el UUID
+   `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb` devuelve 404. No requiere sesión.
+
+Productos ficticios para sandbox, definidos para una tienda de tecnología.
+Los diez productos y categorías son decisiones del proyecto, no requisitos
+textuales del PDF. Datos locales al verificar:
+
+| SKU     | Producto                       | Categoría         | Centavos COP | COP    | Disponible |
+| ------- | ------------------------------ | ----------------- | ------------ | ------ | ---------- |
+| AUD-001 | Auriculares inalámbricos Nova  | audio             | 12990000     | 129900 | 10         |
+| AUD-002 | Parlante portátil Pulse        | audio             | 17990000     | 179900 | 5          |
+| COM-001 | Teclado mecánico K68           | computacion       | 18990000     | 189900 | 12         |
+| COM-002 | Mouse inalámbrico Ergo         | computacion       | 7990000      | 79900  | 18         |
+| COM-003 | Cámara web Full HD Focus       | computacion       | 11990000     | 119900 | 10         |
+| ACC-001 | Cargador USB-C de 65 W         | accesorios        | 9990000      | 99900  | 20         |
+| ACC-002 | Hub USB-C de seis puertos      | accesorios        | 14990000     | 149900 | 14         |
+| ALM-001 | SSD portátil de 1 TB           | almacenamiento    | 32990000     | 329900 | 8          |
+| HOG-001 | Bombillo inteligente Wi-Fi RGB | hogar-inteligente | 4990000      | 49900  | 25         |
+| HOG-002 | Enchufe inteligente Wi-Fi      | hogar-inteligente | 5990000      | 59900  | 16         |
+
+La disponibilidad se calcula desde stock menos reservas HELD: excluye las
+vencidas NOT_SENT y conserva las comprometidas IN_FLIGHT/SUBMITTED/UNKNOWN.
+Es una consulta, no crea reservas ni descuenta inventario. Imagen y SKU también
+se devuelven. Money solo representa/valida centavos enteros COP entre 0 y
+2000000000; el precio del producto debe ser positivo. No hay tarifas ni resumen
+implementados todavía.
+
 ## Migraciones y seed
 
 Desde backend, contra la DB indicada por las variables de entorno:
@@ -70,11 +107,20 @@ npm run migration:revert
 ```
 
 Generar compara las entidades con la base seleccionada; revisar el SQL antes de
-versionarlo. Revertir elimina las tablas/datos de la última migración: usar una
-base descartable para comprobarlo. La inicial crea las siete tablas del modelo;
-no aplica reglas de compra ni procesa pagos. El seed inserta dos productos por
-ID/SKU y no sobrescribe stock, precios ni datos ya existentes. Sus imágenes son
-placeholders externos para desarrollo.
+versionarlo. Revertir deshace la última migración y puede eliminar columnas/datos: usar
+una base descartable para comprobarlo. La inicial crea las siete tablas del modelo;
+no aplica reglas de compra ni procesa pagos. AddProductCategory1795643379559 añade
+category y transforma una sola vez los dos productos originales, conservando sus
+UUID/stock. Si detecta presentación personalizada o colisión de SKU, aborta la
+migración completa con CATALOG_TRANSITION_CONFLICT; no sobrescribir ni borrar para
+resolverlo automáticamente. El seed inserta los diez por ID/SKU y nunca actualiza
+existentes después de esa transición. Se conservan productos ajenos, reservas e
+históricos. Revertir la migración de categoría no deshace precios/SKU de productos.
+
+Las diez imageUrl de placehold.co fueron comprobadas por HTTP el 2026-11-25:
+200, image/png, 800×600. Son **placeholders con texto**, no fotografías ni
+representaciones físicas de los productos. Las imágenes reales quedan pendientes;
+no se agregó generación ni subida de archivos.
 
 ## Pruebas y cobertura
 
@@ -91,27 +137,42 @@ npm run test:cov -- --runInBand
 ```
 
 Para arrancar compilado: `npm run build` y `npm run start:prod`. Los scripts
-existen y la base se comprobó en Windows. Las e2e actuales solo leen PostgreSQL:
-consulta SQL, Hello World, Helmet, Swagger y validación global. Las unitarias
-cubren configuración. No equivalen a pruebas del negocio todavía no creado.
+existen y la base se comprobó en Windows. Las e2e comprueban HTTP, catálogo,
+Hello World, Helmet, Swagger y validación global; el catálogo usa fixtures en
+bases aisladas. Las unitarias cubren configuración, Money y casos de consulta.
+No equivalen a pruebas del checkout todavía no implementado.
 
-Verificado en Windows: 58 unitarias, 15 de integración de persistencia y 6 e2e.
+Verificado en Windows: 88 unitarias, 22 de integración y 22 e2e. Las pruebas
+nuevas de catálogo usan bases aisladas; sus fixtures no alteran desarrollo.
 La integración crea payment_checkout_test_<aleatorio> desde cero, migra, prueba
 restricciones/seed, revierte/reaplica y elimina esa base. Requiere que DB_USER
 pueda CREATE DATABASE en el servidor local; nunca limpia la base DB_NAME.
 También se comprobaron los comandos CLI en otra base temporal, incluida
-migration:generate con --check sin cambios. No se migró ni sembró la DB local.
+migration:generate con --check sin cambios. En este bloque se verificó la identidad
+del PostgreSQL local de Docker. Están aplicadas InitialSchema1795632838292 y
+AddProductCategory1795643379559. Seed repetido sin cambios, stock original y
+reservas/históricos preservados. La transición de un original personalizado y su
+rollback se probaron solo en base aislada.
 
 La prueba exige **más del 80 % en frontend y backend por separado**; meta >=85 %
-en statements, branches, functions y lines. Cobertura de esta tarea: no medida;
-frontend no existe. Al implementar, registrar comando/fecha/commit y
-porcentajes reales de cada proyecto. No atribuir cobertura backend al frontend.
+en statements, branches, functions y lines. Medición unitaria del 2026-11-25,
+base ad2bf8ff + cambios Money/catálogo/categoría sin commit, con
+`npm test -- --runInBand --coverage --coverageReporters=text`:
+
+| Alcance                                             | Statements | Branches | Functions | Lines   |
+| --------------------------------------------------- | ---------- | -------- | --------- | ------- |
+| Backend global, todo src con exclusiones existentes | 16,31 %    | 30,08 %  | 24,24 %   | 16,15 % |
+
+El >80 % global sigue **pendiente**. No se incluyen integración/e2e en esas
+métricas; tampoco se cambiaron exclusiones. Money y los casos ListProducts y
+GetProduct tienen 100 % en sus cuatro métricas. Frontend aún no existe y no
+tiene cobertura; no se le atribuye la del backend.
 Escenarios previstos: dinero/overflow, estados, stock concurrente, doble clic,
 idempotencia, aprobado/rechazado, timeout/sync, eventos repetidos, refresh e IDOR.
 
 ## API propuesta y modelo persistido
 
-[Contrato API](docs/api-contract.md): catálogo, sesión, checkout/resumen,
+[Contrato API](docs/api-contract.md) y [OpenAPI exportado](docs/openapi.json): catálogo, sesión, checkout/resumen,
 transacciones/pay/sync y webhook. Clientes/destino se capturan por checkout;
 no necesitan CRUD públicos. Productos ficticios mediante seed idempotente.
 
@@ -129,7 +190,7 @@ erDiagram
 
 [Modelo detallado](docs/data-model.md): compra distinta de intento; un intento
 activo, importes y datos históricos congelados, stock/reservas y entrega solo al
-aprobar. Montos en centavos calculados por servidor. Los índices PostgreSQL
+aprobar. Money valida los importes del catálogo sin framework. Los índices PostgreSQL
 aportan restricciones de unicidad; los casos de uso que aplicarán bloqueos,
 compararán hashes y coordinarán cobro/inventario/entrega siguen pendientes.
 
@@ -141,7 +202,7 @@ en un monolito hexagonal: dominio puro, casos de uso con Result/ResultAsync de
 neverthrow, puertos y adaptadores TypeORM/Wompi. Controllers sin lógica de negocio;
 NestJS conecta implementaciones.
 
-Se eliminan versiones/TTL de cotizaciones: crear intento compara el resumen
+Para el checkout futuro, sin versiones/TTL de cotizaciones: crear intento compara el resumen
 aceptado con el cálculo actual y lo congela. Stock se reserva atómicamente antes
 del cobro. Timeout incierto conserva reserva y bloquea otro envío: webhook y sync
 comparten finalización. Refresh recupera estado desde backend con sesión propia;

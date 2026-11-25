@@ -1,0 +1,305 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "AppController_getHello",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": ["App"]
+      }
+    },
+    "/api/v1/products": {
+      "get": {
+        "operationId": "ProductsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Catálogo activo completo, con precios en centavos COP y unidades disponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductListEnvelopeDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No se admiten limit, cursor ni filtros.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorEnvelopeDto"
+                },
+                "example": {
+                  "error": {
+                    "code": "INVALID_QUERY_PARAMS",
+                    "message": "El catálogo no admite parámetros de consulta."
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Catálogo temporalmente no disponible.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorEnvelopeDto"
+                },
+                "example": {
+                  "error": {
+                    "code": "CATALOG_UNAVAILABLE",
+                    "message": "No fue posible consultar el catálogo."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "Listar el catálogo activo, incluidos productos agotados",
+        "tags": ["products"]
+      }
+    },
+    "/api/v1/products/{id}": {
+      "get": {
+        "operationId": "ProductsController_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "UUID v4 del producto.",
+            "schema": {
+              "format": "uuid",
+              "example": "11111111-1111-4111-8111-111111111111",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Producto activo con su precio en centavos COP y disponibilidad, incluso si está agotado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductEnvelopeDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "UUID v4 inválido o parámetros de consulta no admitidos.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorEnvelopeDto"
+                },
+                "examples": {
+                  "invalidId": {
+                    "summary": "Identificador inválido",
+                    "value": {
+                      "error": {
+                        "code": "INVALID_PRODUCT_ID",
+                        "message": "El identificador debe ser un UUID v4 válido."
+                      }
+                    }
+                  },
+                  "unsupportedQuery": {
+                    "summary": "Query no admitida",
+                    "value": {
+                      "error": {
+                        "code": "INVALID_QUERY_PARAMS",
+                        "message": "El catálogo no admite parámetros de consulta."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "PRODUCT_NOT_FOUND: producto inexistente o inactivo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorEnvelopeDto"
+                },
+                "example": {
+                  "error": {
+                    "code": "PRODUCT_NOT_FOUND",
+                    "message": "Producto no encontrado."
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Catálogo temporalmente no disponible.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogErrorEnvelopeDto"
+                },
+                "example": {
+                  "error": {
+                    "code": "CATALOG_UNAVAILABLE",
+                    "message": "No fue posible consultar el catálogo."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "summary": "Consultar producto y unidades disponibles",
+        "tags": ["products"]
+      }
+    }
+  },
+  "info": {
+    "title": "Payment Checkout API",
+    "description": "Backend API for the payment checkout application.",
+    "version": "0.1.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "schemas": {
+      "ProductDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "11111111-1111-4111-8111-111111111111"
+          },
+          "sku": {
+            "type": "string",
+            "example": "AUD-001",
+            "maxLength": 64
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "audio",
+              "computacion",
+              "accesorios",
+              "almacenamiento",
+              "hogar-inteligente",
+              null
+            ],
+            "nullable": true,
+            "example": "audio",
+            "description": "Categoría; null solo para registros ajenos sin clasificar."
+          },
+          "name": {
+            "type": "string",
+            "example": "Auriculares inalámbricos Nova",
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "example": "Auriculares Bluetooth con micrófono integrado, controles táctiles y estuche de carga USB-C. Diseño compacto para llamadas, música y uso diario. Incluyen cable de carga y almohadillas."
+          },
+          "imageUrl": {
+            "type": "string",
+            "example": "https://placehold.co/800x600/png?text=Auriculares",
+            "maxLength": 2048
+          },
+          "unitPriceCents": {
+            "type": "integer",
+            "example": 12990000,
+            "description": "Centavos enteros COP: 12990000 centavos = 129900 COP.",
+            "minimum": 1,
+            "maximum": 2000000000
+          },
+          "currency": {
+            "type": "string",
+            "enum": ["COP"],
+            "example": "COP"
+          },
+          "available": {
+            "type": "integer",
+            "example": 10,
+            "minimum": 0,
+            "description": "Stock menos reservas comprometidas. Cero sigue siendo consultable."
+          }
+        },
+        "required": [
+          "id",
+          "sku",
+          "category",
+          "name",
+          "description",
+          "imageUrl",
+          "unitPriceCents",
+          "currency",
+          "available"
+        ]
+      },
+      "ProductListDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProductDto"
+            }
+          }
+        },
+        "required": ["items"]
+      },
+      "ProductListEnvelopeDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ProductListDto"
+          }
+        },
+        "required": ["data"]
+      },
+      "CatalogErrorDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "INVALID_PRODUCT_ID",
+              "INVALID_QUERY_PARAMS",
+              "PRODUCT_NOT_FOUND",
+              "CATALOG_UNAVAILABLE"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "example": "Producto no encontrado."
+          }
+        },
+        "required": ["code", "message"]
+      },
+      "CatalogErrorEnvelopeDto": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/CatalogErrorDto"
+          }
+        },
+        "required": ["error"]
+      },
+      "ProductEnvelopeDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ProductDto"
+          }
+        },
+        "required": ["data"]
+      }
+    }
+  }
+}

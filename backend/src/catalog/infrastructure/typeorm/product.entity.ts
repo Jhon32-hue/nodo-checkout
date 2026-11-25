@@ -1,8 +1,13 @@
 import { Check, Column, Entity, Unique } from 'typeorm';
 import { PersistedEntity } from '../../../infrastructure/database/persisted.entity';
+import type { ProductCategory } from '../../domain/product-category';
 
 @Entity('products')
 @Unique('uq_products_sku', ['sku'])
+@Check(
+  'ck_products_category',
+  "category IS NULL OR category IN ('audio', 'computacion', 'accesorios', 'almacenamiento', 'hogar-inteligente')",
+)
 @Check(
   'ck_products_text',
   "btrim(sku) <> '' AND btrim(name) <> '' AND btrim(description) <> '' AND image_url LIKE 'https://%'",
@@ -15,6 +20,9 @@ import { PersistedEntity } from '../../../infrastructure/database/persisted.enti
 export class ProductOrmEntity extends PersistedEntity {
   @Column({ name: 'sku', type: 'varchar', length: 64 })
   sku!: string;
+
+  @Column({ name: 'category', type: 'varchar', length: 32, nullable: true })
+  category!: ProductCategory | null;
 
   @Column({ name: 'name', type: 'varchar', length: 120 })
   name!: string;

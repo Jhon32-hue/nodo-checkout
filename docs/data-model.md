@@ -1,8 +1,9 @@
 # Modelo de datos
 
 **Persistencia implementada:** siete entidades TypeORM en infraestructura,
-migración inicial y seed. Verificados en PostgreSQL aislado; casos de uso,
-repositorios de negocio y reglas de coordinación siguen pendientes.
+migración inicial y seed, verificados en PostgreSQL aislado y aplicados localmente.
+Lectura del catálogo implementada; escrituras y coordinación de compra/pagos
+siguen pendientes.
 Una compra contiene un producto y cantidad; puede
 conservar varios intentos de pago, solo uno activo. Ver [flujo](checkout-flow.md)
 y [API](api-contract.md).
@@ -39,12 +40,12 @@ además respetará límites de UAT, todavía por verificar.
 
 ### Catálogo y compra
 
-| Tabla / propietario            | Campos relevantes                                                                                                                                        | Integridad                                                                                   |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `products` / Catalog           | sku varchar(64), name varchar(120), description text, image_url varchar(2048), unit_price_cents integer, currency char(3), stock integer, active boolean | UNIQUE sku; stock 0..1000000; precio positivo; currency=COP; imagen HTTPS controlada         |
-| `checkout_sessions` / Checkout | token_digest bytea, expires_at timestamptz                                                                                                               | UNIQUE token_digest; digest de token aleatorio de 256 bits; cookie, no bearer en claro en DB |
-| `customers` / Checkout         | full_name varchar(120), email varchar(254), phone varchar(16)                                                                                            | Cliente específico de una compra; no identidad global ni UNIQUE email                        |
-| `checkouts` / Checkout         | session_id FK, product_id FK, customer_id FK ?, quantity smallint, delivery_draft jsonb ?, status varchar(32)                                            | UNIQUE customer_id; estados DRAFT/PAYMENT_PENDING/PAID; índice session_id                    |
+| Tabla / propietario            | Campos relevantes                                                                                                                                                                | Integridad                                                                                   |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `products` / Catalog           | sku varchar(64), category varchar(32) ?, name varchar(120), description text, image_url varchar(2048), unit_price_cents integer, currency char(3), stock integer, active boolean | UNIQUE sku; stock 0..1000000; precio positivo; currency=COP; imagen HTTPS controlada         |
+| `checkout_sessions` / Checkout | token_digest bytea, expires_at timestamptz                                                                                                                                       | UNIQUE token_digest; digest de token aleatorio de 256 bits; cookie, no bearer en claro en DB |
+| `customers` / Checkout         | full_name varchar(120), email varchar(254), phone varchar(16)                                                                                                                    | Cliente específico de una compra; no identidad global ni UNIQUE email                        |
+| `checkouts` / Checkout         | session_id FK, product_id FK, customer_id FK ?, quantity smallint, delivery_draft jsonb ?, status varchar(32)                                                                    | UNIQUE customer_id; estados DRAFT/PAYMENT_PENDING/PAID; índice session_id                    |
 
 El comprador y destino se completan antes de crear un intento. delivery_draft
 contiene destinatario, teléfono, dirección, ciudad, región, país CO y campos
@@ -100,14 +101,19 @@ para entregar, no integración con transportista.
 `products.stock` son unidades aún no vendidas. Disponible = stock menos la suma
 de reservas HELD vigentes. Una HELD con envío NOT_SENT y expires_at vencido deja
 de ocupar disponibilidad; si el envío es IN_FLIGHT/SUBMITTED/UNKNOWN, sigue
-ocupándola **sin importar esa fecha**. La lectura usa la misma regla que la
-escritura. Al aprobar se decrementa stock y se marca CONFIRMED; al rechazar se
+ocupándola **sin importar esa fecha**. La lectura del catálogo ya aplica esa regla; las futuras escrituras deberán
+reutilizarla bajo bloqueo. Al aprobar se decrementa stock y se marca CONFIRMED; al rechazar se
 marca RELEASED. No hay contador reserved duplicado ni tabla inventory separada.
 
 Los futuros casos de creación de reserva e inicio/finalización bloquearán
 products antes de evaluar capacidad. Todos los escritores seguirán checkout -> intento propio
 (si existe) -> product -> reserva propia. Así dos compradores no reservan la
 última unidad; no se bloquean compras ajenas para limpiar reservas vencidas.
+
+category usa un CHECK con audio/computacion/accesorios/almacenamiento/
+hogar-inteligente. NULL preserva registros ajenos sin asignarles una categoría
+inventada; los diez productos del seed siempre tienen categoría. No hay tabla ni
+CRUD adicional.
 
 ## Migración y seed implementados
 
@@ -117,14 +123,22 @@ products antes de evaluar capacidad. Todos los escritores seguirán checkout -> 
   índices. FKs compuestas vinculan entrega a su compra y reserva al producto y
   cantidad de su intento. Aprobación/stock/entrega en un commit requieren todavía
   la UoW de aplicación: las FKs por sí solas no lo garantizan.
-- Seed con IDs/SKUs fijos y ON CONFLICT DO NOTHING en una transacción; dos
-  productos ficticios. Repetirlo preserva stock consumido y ediciones existentes.
+- AddProductCategory1795643379559 añade el campo nullable y su CHECK. Migra una
+  sola vez los dos originales a AUD-001/AUD-002 si sus datos coinciden con la
+  versión original; preserva UUID, stock, reservas y snapshots. Si fueron
+  personalizados, CATALOG_TRANSITION_CONFLICT aborta con rollback completo.
+  No se editó InitialSchema. El down elimina categoría, no revierte presentación.
+- Seed con diez IDs/SKUs fijos y ON CONFLICT DO NOTHING en una transacción.
+  Repetirlo preserva stock consumido, productos ajenos y ediciones posteriores,
+  incluso cambios posteriores de SKU. No se vuelve a ejecutar la transformación
+  como parte del seed: queda registrada por el historial de migraciones.
 - [Comandos reales en README](../README.md#migraciones-y-seed). La prueba
   `npm run test:integration` crea una DB aleatoria aislada, verifica up/down/up,
   equivalencia ORM/esquema, seed repetido, límites, FKs e índices concurrentes.
   Necesita CREATEDB en el servidor local y borra solo su propia base temporal.
   Verificado con CLI Node en Windows y PostgreSQL 17 en Docker Linux; ejecución
-  de la CLI en Linux pendiente. La DB de desarrollo no se migró en esta tarea.
+  de la CLI en Linux pendiente. La DB local ya tiene ambas migraciones y los diez productos;
+  repetir el seed conservó íntegramente las filas existentes.
 
 Solo datos ficticios en sandbox. No se incluye un sistema de retención o
 anonimización en este assessment; antes de usar datos reales se requiere definir

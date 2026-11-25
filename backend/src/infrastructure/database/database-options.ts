@@ -9,6 +9,8 @@ import { TransactionOrmEntity } from '../../checkout/infrastructure/typeorm/tran
 import { DeliveryOrmEntity } from '../../fulfillment/infrastructure/typeorm/delivery.entity';
 import { InitialSchema1795632838292 } from './migrations/1795632838292-InitialSchema';
 
+import { AddProductCategory1795643379559 } from './migrations/1795643379559-AddProductCategory';
+
 type DatabaseEnvironment = Pick<
   Environment,
   'DB_HOST' | 'DB_PORT' | 'DB_USER' | 'DB_PASSWORD' | 'DB_NAME'
@@ -33,7 +35,7 @@ export function createDatabaseOptions(
       InventoryReservationOrmEntity,
       DeliveryOrmEntity,
     ],
-    migrations: [InitialSchema1795632838292],
+    migrations: [InitialSchema1795632838292, AddProductCategory1795643379559],
     synchronize: false,
     migrationsRun: false,
   };

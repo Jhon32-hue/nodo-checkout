@@ -1,6 +1,6 @@
 # Recorrido y reglas de checkout
 
-**Diseño propuesto para dos días; negocio todavía no implementado.**
+**Money y lectura del catálogo implementados; el resto del recorrido sigue propuesto.**
 Ver [modelo](data-model.md), [contrato HTTP](api-contract.md) y [estado actual](../README.md).
 
 ## Cinco pantallas
@@ -14,7 +14,7 @@ Ver [modelo](data-model.md), [contrato HTTP](api-contract.md) y [estado actual](
 | 5. Producto          | Consultar de nuevo disponibilidad y permitir otra compra. Una compra pagada no se reutiliza para cobrar.                                                                                 |
 
 Tarifas ficticias propuestas: base 50000 y entrega 100000 centavos por compra,
-COP y una cuota. Ejemplo: 2 × 250000 + 50000 + 100000 = 650000. Confirmar estos
+COP y una cuota. Ejemplo: 2 × 12990000 + 50000 + 100000 = 26130000. Confirmar estos
 valores y los límites del proveedor antes de implementar la integración.
 
 ## Arquitectura pequeña, con límites reales
@@ -209,6 +209,9 @@ proyectos; pp. 5-6: sandbox, repositorio público y entrega desplegada. La meta
 interna se mantiene >=85 % por proyecto. Hexagonal, ROP y clean code siguen
 siendo criterios explícitos; revisar imports y probar núcleo sin Nest/SQL/HTTP.
 Ya existen pruebas de persistencia para migración/seed, restricciones, relaciones,
-índices y dos inserciones concurrentes de intento activo. Las pruebas del
+índices, dos inserciones concurrentes de intento activo y disponibilidad del
+catálogo (reservas vigentes, liberadas y vencidas con envío incierto), transición
+segura del catálogo de diez productos y rechazo de query no admitida. Money y
+consulta de productos tienen pruebas unitarias; las rutas 200/400/404/503 tienen e2e. Las pruebas del
 recorrido, locks de inventario y finalización de pagos siguen **pendientes**;
 la persistencia no implementa esos casos de uso.
