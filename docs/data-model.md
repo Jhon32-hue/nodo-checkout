@@ -5,7 +5,8 @@ migración inicial y seed, verificados en PostgreSQL aislado y aplicados localme
 Lectura del catálogo y persistencia de sesión/borrador implementadas. SessionStore
 guarda digest/expiración; CheckoutStore consulta por propietario y bloquea la compra
 al editar. Cliente por compra y delivery_draft se guardan en un único commit;
-no se crean entregas, intentos ni reservas. Coordinación de pagos pendiente.
+Creación de intento PENDING, snapshots y reserva HELD implementada bajo locks;
+stock físico y entregas no cambian. Coordinación de pagos pendiente.
 Una compra contiene un producto y cantidad; puede
 conservar varios intentos de pago, solo uno activo. Ver [flujo](checkout-flow.md)
 y [API](api-contract.md).
@@ -94,8 +95,10 @@ del contenido de comprador/destino.
 | `inventory_reservations` / Catalog | transaction_id FK, product_id FK, quantity smallint, status varchar(16), expires_at timestamptz | UNIQUE transaction_id; HELD/CONFIRMED/RELEASED; índice `(product_id, status)`                                          |
 | `deliveries` / Fulfillment         | checkout_id FK, transaction_id FK, status varchar(16)                                           | UNIQUE checkout_id y transaction_id; estado READY; FK compuesto (transaction_id, checkout_id) al intento de esa compra |
 
-Regla para los futuros casos de uso: intento y reserva se crearán en el mismo
-commit. Entrega solo deberá existir con
+CreateTransaction ya crea intento y reserva en el mismo commit, con hash/clave
+idempotente y attemptNumber bajo lock de checkout. Expira solo su NOT_SENT vencido;
+la expiración se confirma ante errores posteriores de negocio, mientras un fallo
+SQL revierte toda la creación parcial. Entrega solo deberá existir con
 aprobación, en el mismo commit que confirma inventario. Su producto/destino
 histórico se obtiene del intento: no se copia otra vez. READY significa lista
 para entregar, no integración con transportista.
@@ -103,12 +106,12 @@ para entregar, no integración con transportista.
 `products.stock` son unidades aún no vendidas. Disponible = stock menos la suma
 de reservas HELD vigentes. Una HELD con envío NOT_SENT y expires_at vencido deja
 de ocupar disponibilidad; si el envío es IN_FLIGHT/SUBMITTED/UNKNOWN, sigue
-ocupándola **sin importar esa fecha**. La lectura del catálogo ya aplica esa regla; las futuras escrituras deberán
-reutilizarla bajo bloqueo. Al aprobar se decrementa stock y se marca CONFIRMED; al rechazar se
+ocupándola **sin importar esa fecha**. La lectura del catálogo ya aplica esa regla; CreateTransaction ya la aplica
+bajo bloqueo; inicio/finalización futuros deberán conservarla. Al aprobar se decrementa stock y se marca CONFIRMED; al rechazar se
 marca RELEASED. No hay contador reserved duplicado ni tabla inventory separada.
 
-Los futuros casos de creación de reserva e inicio/finalización bloquearán
-products antes de evaluar capacidad. Todos los escritores seguirán checkout -> intento propio
+CreateTransaction bloquea products antes de evaluar capacidad;
+los futuros casos de inicio/finalización respetarán ese mismo orden. Todos los escritores seguirán checkout -> intento propio
 (si existe) -> product -> reserva propia. Así dos compradores no reservan la
 última unidad; no se bloquean compras ajenas para limpiar reservas vencidas.
 

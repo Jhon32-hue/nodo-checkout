@@ -6,6 +6,7 @@ import type {
 } from './checkout-ports';
 import {
   calculateSummary,
+  calculateDraftSummary,
   validQuantity,
   validatePatch,
   CheckoutError,
@@ -91,13 +92,11 @@ export class GetSummary {
         return err({ kind: 'INCOMPLETE_CHECKOUT' } as CheckoutError);
       if (!record.active || record.view.status !== 'DRAFT')
         return err({ kind: 'CHECKOUT_LOCKED' } as CheckoutError);
-      return calculateSummary({
-        quantity: record.view.quantity,
-        unitPriceCents: record.unitPriceCents,
-        currency: record.currency,
-        baseFeeCents: 50000,
-        deliveryFeeCents: 100000,
-      });
+      return calculateDraftSummary(
+        record.view.quantity,
+        record.unitPriceCents,
+        record.currency,
+      );
     });
   }
 }

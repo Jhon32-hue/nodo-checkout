@@ -410,4 +410,212 @@ describe('Recoverable checkout (isolated PostgreSQL)', () => {
       }
     }
   });
+  it('creates and recovers an owned reservation with idempotency, validation and private responses', async () => {
+    const auth = await login();
+    const id = await create(auth);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/checkouts/${id}`)
+      .set('Origin', origin)
+      .set('Cookie', auth.cookie)
+      .set('X-CSRF-Token', auth.csrf)
+      .send({ buyer, delivery })
+      .expect(200);
+    const acceptedSummary = {
+      quantity: 2,
+      unitPriceCents: 12990000,
+      baseFeeCents: 50000,
+      deliveryFeeCents: 100000,
+      currency: 'COP',
+    };
+    const body = { checkoutId: id, acceptedSummary };
+    const key = randomUUID();
+    const post = (input: unknown = body, idempotencyKey = key) =>
+      request(app.getHttpServer())
+        .post('/api/v1/transactions')
+        .set('Origin', origin)
+        .set('Cookie', auth.cookie)
+        .set('X-CSRF-Token', auth.csrf)
+        .set('Idempotency-Key', idempotencyKey)
+        .send(input);
+    await request(app.getHttpServer())
+      .post('/api/v1/transactions')
+      .set('Origin', origin)
+      .send(body)
+      .expect(401);
+    await request(app.getHttpServer())
+      .post('/api/v1/transactions')
+      .set('Origin', origin)
+      .set('Cookie', auth.cookie)
+      .set('Idempotency-Key', key)
+      .send(body)
+      .expect(403);
+    await request(app.getHttpServer())
+      .post('/api/v1/transactions')
+      .set('Origin', 'https://evil.example')
+      .set('Cookie', auth.cookie)
+      .set('X-CSRF-Token', auth.csrf)
+      .send(body)
+      .expect(403);
+    await request(app.getHttpServer())
+      .post('/api/v1/transactions')
+      .set('Origin', origin)
+      .set('Cookie', auth.cookie)
+      .set('X-CSRF-Token', auth.csrf)
+      .send(body)
+      .expect(400);
+    await post(body, 'invalid-key').expect(400);
+    for (const input of [
+      { ...body, cardToken: 'forbidden' },
+      { ...body, acceptedSummary: { ...acceptedSummary, unknown: 1 } },
+      { ...body, acceptedSummary: { ...acceptedSummary, quantity: '2' } },
+      { ...body, acceptedSummary: null },
+    ])
+      await post(input).expect(400);
+    const before = (
+      await source
+        .getRepository(ProductOrmEntity)
+        .findOneByOrFail({ id: catalogProducts[0].id })
+    ).stock;
+    const catalogBefore = await request(app.getHttpServer())
+      .get(`/api/v1/products/${catalogProducts[0].id}`)
+      .expect(200);
+    const response = await post()
+      .expect(201)
+      .expect('Cache-Control', 'no-store');
+    const attempt = (
+      response.body as {
+        data: { id: string; status: string; dispatchStatus: string };
+      }
+    ).data;
+    expect(attempt).toMatchObject({
+      status: 'PENDING',
+      dispatchStatus: 'NOT_SENT',
+    });
+    const replay = await post().expect(201);
+    expect(replay.body).toEqual(response.body);
+    await post({
+      ...body,
+      acceptedSummary: { ...acceptedSummary, quantity: 1 },
+    })
+      .expect(409)
+      .expect({
+        error: {
+          code: 'IDEMPOTENCY_CONFLICT',
+          message: 'IDEMPOTENCY_CONFLICT',
+        },
+      });
+    await post(body, randomUUID()).expect(409);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/checkouts/${id}`)
+      .set('Origin', origin)
+      .set('Cookie', auth.cookie)
+      .set('X-CSRF-Token', auth.csrf)
+      .send({ quantity: 1 })
+      .expect(409);
+    const rowsBefore: unknown = await source.query(
+      'SELECT * FROM transactions ORDER BY id',
+    );
+    const detail = await request(app.getHttpServer())
+      .get(`/api/v1/transactions/${attempt.id}`)
+      .set('Cookie', auth.cookie)
+      .expect(200)
+      .expect('Cache-Control', 'no-store');
+    expect(detail.body).toMatchObject({
+      data: {
+        ...attempt,
+        summary: { totalCents: 26130000 },
+        reservationStatus: 'HELD',
+        reservationExpired: false,
+        finalizedAt: null,
+      },
+    });
+    expect(
+      Object.keys(
+        (detail.body as { data: Record<string, unknown> }).data,
+      ).sort(),
+    ).toEqual(
+      [
+        'id',
+        'checkoutId',
+        'status',
+        'dispatchStatus',
+        'reservationExpiresAt',
+        'deliveryId',
+        'reference',
+        'summary',
+        'createdAt',
+        'finalizedAt',
+        'reservationStatus',
+        'reservationExpired',
+      ].sort(),
+    );
+    expect(
+      await source.query('SELECT * FROM transactions ORDER BY id'),
+    ).toEqual(rowsBefore);
+    const other = await login();
+    await request(app.getHttpServer())
+      .post('/api/v1/transactions')
+      .set('Origin', origin)
+      .set('Cookie', other.cookie)
+      .set('X-CSRF-Token', other.csrf)
+      .set('Idempotency-Key', randomUUID())
+      .send(body)
+      .expect(404);
+    const foreign = await request(app.getHttpServer())
+      .get(`/api/v1/transactions/${attempt.id}`)
+      .set('Cookie', other.cookie)
+      .expect(404);
+    const missing = await request(app.getHttpServer())
+      .get(`/api/v1/transactions/${randomUUID()}`)
+      .set('Cookie', auth.cookie)
+      .expect(404);
+    expect(foreign.body).toEqual(missing.body);
+    await request(app.getHttpServer())
+      .get(`/api/v1/transactions/${attempt.id}`)
+      .expect(401);
+    await request(app.getHttpServer())
+      .get('/api/v1/transactions/invalid')
+      .set('Cookie', auth.cookie)
+      .expect(400);
+    const catalogAfter = await request(app.getHttpServer())
+      .get(`/api/v1/products/${catalogProducts[0].id}`)
+      .expect(200);
+    expect(
+      (catalogAfter.body as { data: { available: number } }).data.available,
+    ).toBe(
+      (catalogBefore.body as { data: { available: number } }).data.available -
+        2,
+    );
+    expect(
+      (
+        await source
+          .getRepository(ProductOrmEntity)
+          .findOneByOrFail({ id: catalogProducts[0].id })
+      ).stock,
+    ).toBe(before);
+    await source.getRepository(TransactionOrmEntity).update(attempt.id, {
+      status: 'DECLINED',
+      dispatchStatus: 'SUBMITTED',
+      submissionStartedAt: new Date(),
+      payRequestHash: 'a'.repeat(64),
+      acceptanceEvidence: { accepted: true },
+      providerTransactionId: 'fixture-declined',
+      finalizedAt: new Date(),
+    });
+    const declined = await request(app.getHttpServer())
+      .get(`/api/v1/transactions/${attempt.id}`)
+      .set('Cookie', auth.cookie)
+      .expect(200);
+    expect(declined.body).toMatchObject({
+      data: { status: 'DECLINED', summary: { totalCents: 26130000 } },
+    });
+    const document = (await request(app.getHttpServer()).get('/docs-json'))
+      .body as OpenAPIObject;
+    expect(
+      document.paths['/api/v1/transactions'].post?.responses['201'],
+    ).toBeDefined();
+    expect(
+      document.paths['/api/v1/transactions/{id}'].get?.responses['200'],
+    ).toBeDefined();
+  });
 });

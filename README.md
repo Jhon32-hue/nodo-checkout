@@ -6,12 +6,12 @@ móvil y recuperable al refrescar.
 
 ## Estado actual
 
-| Implementado                                                            | Propuesto / pendiente                          |
-| ----------------------------------------------------------------------- | ---------------------------------------------- |
-| NestJS 11, PostgreSQL 17, TypeORM 1.1.3; migraciones y seed idempotente | Inicio/finalización del pago y reservas        |
-| Money COP, catálogo y disponibilidad                                    | Wompi sandbox, idempotencia y reconciliación   |
-| Sesión guest/CSRF; crear, guardar y recuperar borrador; resumen         | SPA React y recorrido de cinco pantallas       |
-| Helmet, validación, Swagger, pruebas unitarias/SQL/e2e                  | Cobertura global >80 %, Linux y despliegue AWS |
+| Implementado                                                            | Propuesto / pendiente                                  |
+| ----------------------------------------------------------------------- | ------------------------------------------------------ |
+| NestJS 11, PostgreSQL 17, TypeORM 1.1.3; migraciones y seed idempotente | Inicio/finalización del pago                           |
+| Money COP, catálogo y disponibilidad                                    | Wompi sandbox, idempotencia del cobro y reconciliación |
+| Sesión/CSRF, borrador/resumen, intento PENDING y reserva idempotente    | SPA React y recorrido de cinco pantallas               |
+| Helmet, validación, Swagger, pruebas unitarias/SQL/e2e                  | Cobertura global >80 %, Linux y despliegue AWS         |
 
 Frontend acordado: React + TypeScript + Vite, Redux Toolkit/React Redux,
 React Hook Form/Zod, CSS Modules y Flexbox/Grid, Jest/React Testing Library.
@@ -39,7 +39,7 @@ npm run start:dev
 
 Esperar a `db` healthy. API: <http://localhost:3000>, Swagger:
 <http://localhost:3000/docs>, OpenAPI: <http://localhost:3000/docs-json>.
-Swagger incluye catálogo y las cinco operaciones de sesión/borrador/resumen. Pagos pendientes.
+Swagger incluye catálogo y sesión/borrador/resumen y creación/consulta de intentos. Pagos pendientes.
 Ctrl+C detiene NestJS. PostgreSQL usa `127.0.0.1:5433` desde Windows y volumen
 persistente; `docker compose stop db` lo detiene desde la raíz sin borrar datos.
 
@@ -155,7 +155,55 @@ PATCH acepta quantity y/o objetos completos buyer/delivery, solo en DRAFT.
 Comprador y destino se guardan juntos bajo lock SQL; clientes no se comparten por
 email. Un borrador no reserva ni descuenta stock ni crea entregas. Resumen
 incompleto devuelve 422; con intento activo/aprobado lee sus importes históricos.
-No hay aún rutas para crear dichos intentos. Véase el contrato para errores.
+POST transactions crea dichos intentos y su reserva; GET recupera su histórico. Véase el contrato para errores.
+
+## Crear intento y reservar (PowerShell)
+
+Después del recorrido anterior, con el mismo $base, $checkoutCookies, $headers,
+$checkoutId y $summary. Ejecutar con datos ficticios: crea una reserva local por
+10 minutos; no envía nada a Wompi. La reserva reduce available, no products.stock.
+
+```powershell
+$productId = $draft.data.productId
+$before = Invoke-RestMethod -Uri "$base/products/$productId"
+$attemptHeaders = $headers.Clone()
+$attemptHeaders['Idempotency-Key'] = [guid]::NewGuid().ToString()
+$attemptBody = @{
+  checkoutId = $checkoutId
+  acceptedSummary = @{
+    quantity = $summary.data.quantity
+    unitPriceCents = $summary.data.unitPriceCents
+    baseFeeCents = $summary.data.baseFeeCents
+    deliveryFeeCents = $summary.data.deliveryFeeCents
+    currency = $summary.data.currency
+  }
+} | ConvertTo-Json -Depth 4
+$attempt = Invoke-RestMethod -Method Post -Uri "$base/transactions" -WebSession $checkoutCookies -Headers $attemptHeaders -ContentType 'application/json' -Body $attemptBody
+$detail = Invoke-RestMethod -Uri "$base/transactions/$($attempt.data.id)" -WebSession $checkoutCookies
+$replay = Invoke-RestMethod -Method Post -Uri "$base/transactions" -WebSession $checkoutCookies -Headers $attemptHeaders -ContentType 'application/json' -Body $attemptBody
+if ($attempt.data.id -ne $replay.data.id) { throw 'Intento duplicado' }
+$after = Invoke-RestMethod -Uri "$base/products/$productId"
+$attempt | ConvertTo-Json -Depth 4
+$detail | ConvertTo-Json -Depth 4
+"Disponible antes: $($before.data.available); después: $($after.data.available)"
+```
+
+Con seed aislado y dos auriculares: available 10 -> 8, stock físico 10 intacto;
+summary histórico totalCents=26130000. POST devuelve 201, incluso en replay:
+data incluye id, checkoutId, status=PENDING, dispatchStatus=NOT_SENT,
+reservationExpiresAt y deliveryId=null. GET devuelve 200 con esos campos más
+reference, summary, createdAt, finalizedAt=null, reservationStatus=HELD y
+reservationExpired=false. No devuelve comprador, dirección, hashes ni claves.
+Los IDs/referencias/fechas se generan en cada ejecución, no son fixtures remotos.
+
+La integración aislada comprueba dos compradores por la última unidad, misma
+clave concurrente, claves distintas, conflicto de payload, rollback de creación
+y expiración NOT_SENT confirmada aunque el nuevo resumen/stock fallen.
+IN_FLIGHT/SUBMITTED/UNKNOWN vencidos siguen reteniendo disponibilidad.
+GET es lectura; con clave nueva, POST aplica expiración propia y permite evaluar
+otro intento. Un replay se resuelve primero y nunca crea otra reserva.
+PATCH de una compra con intento activo devuelve 409 CHECKOUT_LOCKED.
+No hay endpoint de cancelar/pagar ni jobs de limpieza en este bloque.
 
 ## Migraciones y seed
 
@@ -199,7 +247,7 @@ npm run test:cov -- --runInBand
 ```
 
 Para arrancar compilado: `npm run build` y `npm run start:prod`. Verificado en
-Windows con PostgreSQL 17 de Docker: **117 unitarias, 23 integración y 28 e2e**.
+Windows con PostgreSQL 17 de Docker: **149 unitarias, 38 integración y 29 e2e**.
 Las unitarias prueban configuración, dinero y casos de uso; integración comprueba
 restricciones/seed y repositorio de borradores; e2e comprueba HTTP de catálogo y
 sesión/compra. Integración/e2e crean bases aleatorias
@@ -214,21 +262,23 @@ Esta etapa reutiliza sus tablas sin cambiar migraciones, dependencias ni seed.
 
 La prueba exige **más del 80 % en frontend y backend por separado**; meta >=85 %
 en statements, branches, functions y lines. Medición unitaria del 2026-11-25,
-base de catálogo c387681a + bloque de sesión/borrador/resumen, con
+base a4ce4c74 + creación/consulta de intentos y reservas sin commit, con
 `npm test -- --runInBand --coverage --coverageReporters=text`:
 
 | Alcance                                             | Statements | Branches | Functions | Lines   |
 | --------------------------------------------------- | ---------- | -------- | --------- | ------- |
-| Backend global, todo src con exclusiones existentes | 24,39 %    | 35,14 %  | 33,33 %   | 24,85 % |
-| Nuevo dominio checkout.ts                           | 98,41 %    | 98,36 %  | 100 %     | 98,36 % |
+| Backend global, todo src con exclusiones existentes | 27,59 %    | 41,68 %  | 32,30 %   | 27,67 % |
+| Dominio checkout.ts                                 | 98,46 %    | 98,36 %  | 100 %     | 98,41 % |
 | Nuevos casos de uso checkout-cases.ts               | 100 %      | 100 %    | 100 %     | 100 %   |
 | Money (incluidas suma/multiplicación)               | 100 %      | 100 %    | 100 %     | 100 %   |
-| Nuevos HTTP/TypeORM y composición (unitaria)        | 0 %        | 0 %      | 0 %       | 0 %     |
+| Reglas transaction.ts                               | 100 %      | 100 %    | 100 %     | 100 %   |
+| Casos transaction-cases.ts                          | 96 %       | 93,54 %  | 83,33 %   | 100 %   |
+| Nuevos controller/store de intentos (unitaria)      | 0 %        | 0 %      | 0 %       | 0 %     |
 
 El >80 % global sigue **pendiente**. No se incluyen integración/e2e en esas
 métricas; tampoco se cambiaron exclusiones. Money y los casos ListProducts y
 GetProduct tienen 100 % en sus cuatro métricas. Los adaptadores nuevos se prueban
-por integración/e2e y no suman a esta medición unitaria; módulos, DTOs, entidades,
+por integración/e2e y no suman a esta medición unitaria; la traducción de errores HTTP sí tiene unitarias; módulos, DTOs, entidades,
 migraciones y adaptadores siguen incluidos en el denominador. Frontend aún no existe y no
 tiene cobertura; no se le atribuye la del backend.
 Escenarios previstos: dinero/overflow, estados, stock concurrente, doble clic,
@@ -256,8 +306,8 @@ erDiagram
 activo, importes y datos históricos congelados, stock/reservas y entrega solo al
 aprobar. Money valida los importes del catálogo sin framework. Los índices PostgreSQL
 aportan restricciones de unicidad. PATCH bloquea su checkout y guarda cliente y
-destino en una sola transacción. Coordinar cobro/inventario/entrega y comparar
-hashes de los intentos sigue pendiente.
+destino en una sola transacción. Crear PENDING/reserva, comparar resumen e idempotencia ya está implementado;
+coordinar cobro, descuento físico y entrega sigue pendiente.
 
 ## Arquitectura y recorrido
 
@@ -267,9 +317,8 @@ en un monolito hexagonal: dominio puro, casos de uso con Result/ResultAsync de
 neverthrow, puertos y adaptadores TypeORM/Wompi. Controllers sin lógica de negocio;
 NestJS conecta implementaciones.
 
-Para el checkout futuro, sin versiones/TTL de cotizaciones: crear intento compara el resumen
-aceptado con el cálculo actual y lo congela. Stock se reserva atómicamente antes
-del cobro. Timeout incierto conserva reserva y bloquea otro envío: webhook y sync
+Sin versiones/TTL de cotizaciones: crear intento ya compara el resumen
+aceptado con el cálculo actual y lo congela. Stock ya se reserva atómicamente al crear PENDING, sin cobro ni descuento físico. Timeout incierto conserva reserva y bloquea otro envío: webhook y sync
 comparten finalización. Refresh recupera estado desde backend con sesión propia;
 Redux persistido guarda como máximo IDs/paso, nunca tarjeta o tokens.
 
@@ -284,8 +333,8 @@ Para este assessment no hay scheduler/leases: sync mientras la UI está abierta,
 webhook y revisión manual. Si nadie vuelve y no llega evento, un pago incierto
 puede retener stock hasta revisar; no se declara resuelto por quitar los jobs.
 Recuperar sin ID remoto requiere verificar capacidades UAT; nunca reenviar por
-un timeout o liberar por un not-found aislado. También quedan por validar
-contratos/auth/firma/límites en UAT y confirmar tarifas ficticias propuestas.
+un timeout o liberar por un not-found aislado. Se verificaron los GET públicos de configuración UAT (véase contrato); quedan
+por validar tokenización, CORS, firma, pagos y límites en UAT y confirmar tarifas ficticias propuestas.
 Solo datos ficticios; política de retención y operación con datos reales quedan
 fuera de este alcance. No hay triggers de inmutabilidad: sus garantías mediante
 futuros casos de uso/repositorios aún están pendientes, sin protección frente a

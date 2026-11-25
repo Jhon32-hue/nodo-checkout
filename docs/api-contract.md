@@ -2,8 +2,8 @@
 
 **Implementados:** catálogo GET /products y /products/:id; POST /checkout-sessions,
 POST /checkouts, GET/PATCH /checkouts/:id y GET /checkouts/:id/summary, bajo /api/v1.
-GET /, /docs y /docs-json se conservan. Transacciones, cobro, sync y webhook
-siguen **propuestos**. Ver [modelo](data-model.md) y [flujo](checkout-flow.md).
+También POST /transactions y GET /transactions/:id están implementados.
+GET /, /docs y /docs-json se conservan. Cobro, sync y webhook siguen **propuestos**. Ver [modelo](data-model.md) y [flujo](checkout-flow.md).
 
 ## Reglas comunes
 
@@ -104,14 +104,14 @@ PERSISTENCE_UNAVAILABLE sanitizado. PATCH comprueba propiedad/estado bajo lock y
 guarda cliente específico de la compra y delivery_draft en el mismo commit.
 No hay filas deliveries hasta implementar aprobación; no modifica inventario.
 El resumen de producto inactivo o compra bloqueada sin histórico devuelve 409
-CHECKOUT_LOCKED. Las cinco operaciones privadas usan Cache-Control: no-store.
+CHECKOUT_LOCKED. Las operaciones privadas usan Cache-Control: no-store.
 
 Vista de compra: data contiene id, productId, quantity, status, buyer y delivery
 (objetos o null), activeTransactionId, latestTransactionId y deliveryId (IDs o null).
 [Recorrido PowerShell con cookies/Origin/CSRF](../README.md#probar-compra-recuperable-powershell).
 
 Resumen DRAFT se recalcula con el catálogo/tarifas actuales, sin guardarse.
-El futuro CreateTransaction comparará **todos** los campos de acceptedSummary con el cálculo
+CreateTransaction compara **todos** los campos de acceptedSummary con el cálculo
 servidor bajo lock: 409 si cambió, UI vuelve a mostrar resumen. En intento
 activo o compra pagada, GetSummary devuelve el histórico, sin proponer otro cobro.
 Disponibilidad mostrada es informativa; reservar exige comprobación SQL atómica.
@@ -211,7 +211,7 @@ Iniciar cobro (tokens son placeholders, no sirven para pagar):
 Ante timeout: 202, status PENDING, dispatchStatus UNKNOWN y Retry-After 5. Ante
 aprobación: 200, APPROVED/SUBMITTED y deliveryId. Rechazo: 200 DECLINED/SUBMITTED,
 sin entrega; no es un error HTTP. GET informa además reservationExpired para
-NOT_SENT vencido, sin mutar filas; pay marca EXPIRED/RELEASED y devuelve 409.
+NOT_SENT vencido (incluye históricos EXPIRED), sin mutar filas; pay marca EXPIRED/RELEASED y devuelve 409.
 
 ## Errores y recuperación
 
@@ -223,14 +223,45 @@ intento. Un 503 después de posible envío tampoco autoriza otro cobro: consulta
 Un nuevo intento solo tras resultado negativo definitivo o EXPIRED sin envío;
 se utiliza otra clave y otra referencia, conservando el historial.
 
+## Intentos y reservas implementados
+
+Crear intento usa Idempotency-Key UUID v4. Hash determinista del checkoutId
+normalizado y los cinco campos aceptados; el orden JSON no cambia su significado.
+Misma clave/entrada devuelve 201 con el intento existente, incluso si su estado
+cambió. Otra entrada: 409 IDEMPOTENCY_CONFLICT. Otra clave con intento activo o
+compra PAID: 409 CHECKOUT_LOCKED. No se acepta tarjeta/PII/estado en este POST.
+
+Bajo locks checkout -> intento propio -> producto -> reserva propia, recalcula
+resumen/disponibilidad, congela snapshots, crea PENDING/NOT_SENT y HELD (10 min),
+y cambia la compra a PAYMENT_PENDING en un commit. Stock físico y entregas intactos.
+Resumen distinto o stock insuficiente: 409 SUMMARY_CHANGED/INSUFFICIENT_STOCK;
+producto inactivo: 404 PRODUCT_NOT_FOUND; compra incompleta: 422.
+Un error SQL devuelve 503 sanitizado y revierte las escrituras parciales.
+
+Una reserva NOT_SENT vencida propia puede pasar a EXPIRED/RELEASED; esa transición
+se confirma incluso si la evaluación posterior devuelve un error de negocio.
+IN_FLIGHT/SUBMITTED/UNKNOWN no se liberan por tiempo. No se bloquean compras ajenas.
+GET solo lee datos históricos; añade reservationStatus y reservationExpired,
+reference, createdAt/finalizedAt y summary. No publica snapshots personales ni
+hashes. Recursos ajenos/inexistentes: mismo 404; resultado negativo definitivo: 200.
+[Pasos PowerShell](../README.md#crear-intento-y-reservar-powershell).
+
 ## Adaptador Wompi y verificaciones pendientes
 
 | Llamada externa               | Responsable                        | Propósito                                                                   |
 | ----------------------------- | ---------------------------------- | --------------------------------------------------------------------------- |
-| GET /merchants/info           | Backend                            | Obtener contratos/tokens; verificar ruta/header reales en UAT               |
+| GET /merchants/info           | Backend                            | Obtener contratos/tokens; GET y header público verificados en UAT           |
 | POST /tokens/cards            | Frontend directo con llave pública | Tokenizar tarjeta; no pasa por nuestro backend                              |
 | POST /transactions            | Backend                            | CARD, referencia única, monto histórico, firma de integridad y aceptaciones |
 | GET /transactions/:providerId | Backend                            | Confirmar resultado autenticado y comparar referencia/monto/moneda/ambiente |
+
+UAT observado el 2026-11-25: merchant info y GET /tokens/keys/tokenization
+respondieron 200 usando autenticación pública. Ambas aceptaciones presentes.
+La clave de cifrado llega como PEM en una línea: importación PEM directa fallida;
+contenido DER/SPKI válido, RSA 2048 bits, importado correctamente como DER.
+El futuro adaptador deberá normalizar el formato o importar DER; aún no hay
+cifrado ni adaptador. No se publican claves ni tokens. Tokenización, CORS,
+cobro/consulta de pago, eventos y recuperación sin ID siguen sin verificar.
 
 Llave privada y secretos de integridad/eventos solo backend, inyectados; no copiar
 credenciales del PDF ni modificar la cuenta compartida. Verificar UAT antes de

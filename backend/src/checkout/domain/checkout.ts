@@ -1,6 +1,9 @@
 import { err, ok, Result } from 'neverthrow';
 import { Money } from '../../shared/domain/money';
 export type CheckoutCode =
+  | 'IDEMPOTENCY_CONFLICT'
+  | 'SUMMARY_CHANGED'
+  | 'INSUFFICIENT_STOCK'
   | 'SESSION_REQUIRED'
   | 'ORIGIN_DENIED'
   | 'CSRF_INVALID'
@@ -197,4 +200,18 @@ export function calculateSummary(
         })),
     )
     .mapErr((): CheckoutError => ({ kind: 'INVALID_AMOUNT' }));
+}
+
+export function calculateDraftSummary(
+  quantity: number,
+  unitPriceCents: number,
+  currency: string,
+) {
+  return calculateSummary({
+    quantity,
+    unitPriceCents,
+    currency,
+    baseFeeCents: 50000,
+    deliveryFeeCents: 100000,
+  });
 }

@@ -24,7 +24,12 @@ export function failure(error: CheckoutError): HttpException {
         ? 403
         : ['RESOURCE_NOT_FOUND', 'PRODUCT_NOT_FOUND'].includes(error.kind)
           ? 404
-          : error.kind === 'CHECKOUT_LOCKED'
+          : [
+                'CHECKOUT_LOCKED',
+                'IDEMPOTENCY_CONFLICT',
+                'SUMMARY_CHANGED',
+                'INSUFFICIENT_STOCK',
+              ].includes(error.kind)
             ? 409
             : error.kind === 'PERSISTENCE_UNAVAILABLE'
               ? 503

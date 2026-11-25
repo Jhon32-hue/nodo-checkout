@@ -1,6 +1,6 @@
 # Recorrido y reglas de checkout
 
-**Backend de catálogo, sesión, borrador recuperable y resumen implementado; pagos y frontend pendientes.**
+**Backend de catálogo, sesión, borrador/resumen y creación/consulta de intentos con reserva implementados; cobro y frontend pendientes.**
 Ver [modelo](data-model.md), [contrato HTTP](api-contract.md) y [estado actual](../README.md).
 
 ## Cinco pantallas
@@ -49,7 +49,8 @@ de servicios globales.
 
 Implementados ProductRepository, SessionStore, SessionTokens y CheckoutStore.
 CheckoutStore encapsula la transacción y el lock del borrador; no expone SQL.
-Para pagos siguen propuestos PaymentGateway y CheckoutUnitOfWork. Esta última
+Para crear intentos se usa TransactionStore.run con un contexto concreto de locks/escrituras;
+no expone EntityManager. Para cobros siguen propuestos PaymentGateway y CheckoutUnitOfWork. Esta última
 proporcionaría stores concretos de compra,
 intento, reserva y entrega ligados a una sola transacción; no expone
 EntityManager al núcleo ni se convierte en repositorio CRUD universal.
@@ -97,18 +98,18 @@ de que no creó cobro. Un error de red no cumple esa condición.
 | UNKNOWN         | Pudo enviarse pero no hay respuesta fiable | Reconciliar; mantener reserva y bloquear otro intento |
 | NOT_CREATED     | Proveedor garantizó que no creó cobro      | Intento ERROR; permitir nuevo intento                 |
 
-1. **Crear intento:** bajo lock de checkout y producto, comparar el resumen que
+1. **Crear intento (implementado):** bajo lock de checkout y producto, comparar el resumen que
    aceptó el usuario con el cálculo actual del servidor. Si cambió algún importe
    o cantidad, SUMMARY_CHANGED sin reservar; revisar de nuevo. Si coincide y hay
    stock, insertar intento PENDING/NOT_SENT y reserva HELD, cambiar compra a
    PAYMENT_PENDING, commit. Nunca aceptar importes del cliente como autoridad.
-2. **Iniciar cobro:** lock del mismo checkout/intento/producto; validar reserva,
+2. **Iniciar cobro (pendiente):** lock del mismo checkout/intento/producto; validar reserva,
    token/aceptaciones y hacer claim NOT_SENT -> IN_FLIGHT, commit. Después llamar
    a Wompi con la referencia y monto congelados, sin transacción SQL abierta.
-3. **Guardar respuesta:** persistir ID/resultado o UNKNOWN. Una caída después del
+3. **Guardar respuesta (pendiente):** persistir ID/resultado o UNKNOWN. Una caída después del
    claim es incierta aunque el proceso pudiera no haber enviado bytes. Si falla
    guardar la respuesta, IN_FLIGHT sigue bloqueando otro envío.
-4. **Finalizar:** un único FinalizePayment bloquea esas filas, valida ID,
+4. **Finalizar (pendiente):** un único FinalizePayment bloquea esas filas, valida ID,
    referencia, importe, moneda y ambiente. APPROVED: decrementar stock, confirmar
    reserva, crear entrega READY y compra PAID en un commit. Negativo: liberar y
    volver a DRAFT. Resultado final repetido es no-op; contradictorio es conflicto
@@ -218,5 +219,5 @@ segura del catálogo de diez productos y rechazo de query no admitida. Money y
 consulta de productos tienen pruebas unitarias. Sesión y casos de borrador/resumen
 se prueban sin Nest/SQL; integración comprueba clientes por compra y escrituras
 concurrentes bajo lock. E2e con DB aislada cubre autorización, validación, resumen,
-rollback, histórico y recuperación al recrear NestJS. Locks de inventario, cobros y
-finalización siguen **pendientes**. El código nuevo no cambia esas tablas.
+rollback, histórico y recuperación al recrear NestJS. Las pruebas de reserva/última unidad, idempotencia, rollback y expiración propia
+ya existen en PostgreSQL aislado. Cobros y finalización siguen **pendientes**. El código nuevo no cambia esas tablas.

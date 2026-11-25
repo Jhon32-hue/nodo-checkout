@@ -1,3 +1,10 @@
+import { createHash } from 'node:crypto';
+import { TransactionsController } from './infrastructure/http/transactions.controller';
+import { TypeOrmTransactionStore } from './infrastructure/typeorm/transaction.store';
+import {
+  CreateTransaction,
+  GetTransaction,
+} from './application/transaction-cases';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -18,8 +25,23 @@ import {
   GetSummary,
 } from './application/checkout-cases';
 @Module({
-  controllers: [CheckoutsController],
+  controllers: [CheckoutsController, TransactionsController],
   providers: [
+    TypeOrmTransactionStore,
+    {
+      provide: CreateTransaction,
+      inject: [TypeOrmTransactionStore],
+      useFactory: (store: TypeOrmTransactionStore) =>
+        new CreateTransaction(store, {
+          hash: (canonical) =>
+            createHash('sha256').update(canonical).digest('hex'),
+        }),
+    },
+    {
+      provide: GetTransaction,
+      inject: [TypeOrmTransactionStore],
+      useFactory: (store: TypeOrmTransactionStore) => new GetTransaction(store),
+    },
     TypeOrmSessionStore,
     TypeOrmCheckoutStore,
     CheckoutGuard,
