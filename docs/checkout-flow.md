@@ -1,6 +1,6 @@
 # Recorrido y reglas de checkout
 
-**Backend de catálogo, sesión, borrador/resumen y creación/consulta de intentos con reserva implementados; cobro y frontend pendientes.**
+**Backend de catálogo, sesión, borrador/resumen y creación/consulta de intentos con reserva implementados; configuración/pay/sync/finalización sandbox implementados; frontend y webhook pendientes.**
 Ver [modelo](data-model.md), [contrato HTTP](api-contract.md) y [estado actual](../README.md).
 
 ## Cinco pantallas
@@ -49,11 +49,10 @@ de servicios globales.
 
 Implementados ProductRepository, SessionStore, SessionTokens y CheckoutStore.
 CheckoutStore encapsula la transacción y el lock del borrador; no expone SQL.
-Para crear intentos se usa TransactionStore.run con un contexto concreto de locks/escrituras;
-no expone EntityManager. Para cobros siguen propuestos PaymentGateway y CheckoutUnitOfWork. Esta última
-proporcionaría stores concretos de compra,
-intento, reserva y entrega ligados a una sola transacción; no expone
-EntityManager al núcleo ni se convierte en repositorio CRUD universal.
+Para crear intentos se usa TransactionStore.run y para pagos PaymentStore.run,
+con contextos concretos de locks/escrituras;
+no exponen EntityManager. PaymentGateway ya está implementado; no se introdujo
+una UoW genérica adicional ni un repositorio CRUD universal.
 Controllers validan forma/autorizan y traducen resultados, no calculan ni cobran.
 
 ROP con neverthrow, ejemplo de firmas (propuestas, no código implementado):
@@ -103,13 +102,15 @@ de que no creó cobro. Un error de red no cumple esa condición.
    o cantidad, SUMMARY_CHANGED sin reservar; revisar de nuevo. Si coincide y hay
    stock, insertar intento PENDING/NOT_SENT y reserva HELD, cambiar compra a
    PAYMENT_PENDING, commit. Nunca aceptar importes del cliente como autoridad.
-2. **Iniciar cobro (pendiente):** lock del mismo checkout/intento/producto; validar reserva,
+2. **Iniciar cobro (implementado):** lock del mismo checkout/intento/producto; validar reserva,
    token/aceptaciones y hacer claim NOT_SENT -> IN_FLIGHT, commit. Después llamar
    a Wompi con la referencia y monto congelados, sin transacción SQL abierta.
-3. **Guardar respuesta (pendiente):** persistir ID/resultado o UNKNOWN. Una caída después del
+3. **Guardar respuesta (implementado):** persistir ID/resultado o UNKNOWN. Una caída después del
    claim es incierta aunque el proceso pudiera no haber enviado bytes. Si falla
-   guardar la respuesta, IN_FLIGHT sigue bloqueando otro envío.
-4. **Finalizar (pendiente):** un único FinalizePayment bloquea esas filas, valida ID,
+   guardar el ID, IN_FLIGHT sigue bloqueando otro envío. El ID/SUBMITTED se confirma
+   antes de los efectos financieros; si falla crear entrega, sync puede reconsultar
+   por ese ID y reintentar la finalización sin otro cobro.
+4. **Finalizar (implementado):** un único FinalizePayment bloquea esas filas, valida ID,
    referencia, importe, moneda y ambiente. APPROVED: decrementar stock, confirmar
    reserva, crear entrega READY y compra PAID en un commit. Negativo: liberar y
    volver a DRAFT. Resultado final repetido es no-op; contradictorio es conflicto
@@ -142,8 +143,7 @@ EXPIRED/RELEASED y se vuelve a DRAFT. Un intento que ya se envió no vence por e
 reloj. La expiración se confirma antes de devolver el error al cliente, no se
 revierte accidentalmente por lanzar una excepción dentro de la UoW.
 
-No hay jobs, leases ni scheduler durable en el assessment. Webhook y POST sync
-usan FinalizePayment. Sync puede consultar simultáneamente: son lecturas externas
+No hay jobs, leases ni scheduler durable en el assessment. POST sync usa FinalizePayment; el webhook pendiente reutilizará el mismo caso. Sync puede consultar simultáneamente: son lecturas externas
 y la aplicación del resultado se serializa en SQL. El frontend solicita sync
 cada 5 segundos mientras está pendiente y visible, con backoff ante errores,
 y GET recupera el estado local. GET no llama al proveedor ni cambia datos.
@@ -220,4 +220,6 @@ consulta de productos tienen pruebas unitarias. Sesión y casos de borrador/resu
 se prueban sin Nest/SQL; integración comprueba clientes por compra y escrituras
 concurrentes bajo lock. E2e con DB aislada cubre autorización, validación, resumen,
 rollback, histórico y recuperación al recrear NestJS. Las pruebas de reserva/última unidad, idempotencia, rollback y expiración propia
-ya existen en PostgreSQL aislado. Cobros y finalización siguen **pendientes**. El código nuevo no cambia esas tablas.
+ya existen en PostgreSQL aislado. Cobros y finalización tienen unitarias, SQL/e2e simulados y un aprobado UAT;
+el primer rechazo quedó incierto y un ensayo independiente posterior confirmó DECLINED,
+reserva liberada, stock intacto, ninguna entrega y checkout DRAFT. Frontend/webhook siguen pendientes. El código nuevo no cambia esas tablas.

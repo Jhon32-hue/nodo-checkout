@@ -1,6 +1,10 @@
 import { err, ok, Result } from 'neverthrow';
 import { Money } from '../../shared/domain/money';
 export type CheckoutCode =
+  | 'PAYLOAD_CONFLICT'
+  | 'RESERVATION_EXPIRED'
+  | 'OBSERVATION_CONFLICT'
+  | 'INVALID_PAYMENT_INPUT'
   | 'IDEMPOTENCY_CONFLICT'
   | 'SUMMARY_CHANGED'
   | 'INSUFFICIENT_STOCK'

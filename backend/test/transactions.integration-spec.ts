@@ -1,3 +1,19 @@
+import { okAsync, errAsync, ResultAsync } from 'neverthrow';
+import { TypeOrmPaymentStore } from '../src/payments/infrastructure/payment.store';
+import {
+  StartPayment,
+  SyncPayment,
+  FinalizePayment,
+} from '../src/payments/application/payment-cases';
+import type {
+  PaymentGateway,
+  GatewayCreate,
+} from '../src/payments/application/payment-ports';
+import type {
+  Observation,
+  PayInput,
+  RemoteStatus,
+} from '../src/payments/domain/payment';
 import 'reflect-metadata';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { Client } from 'pg';
@@ -388,5 +404,362 @@ describe('Transaction concurrency and atomicity (isolated PostgreSQL)', () => {
     expect(
       value(await store.get(c.sessionId, attempt.id, new Date())).status,
     ).toBe('DECLINED');
+  });
+  const payInput: PayInput = {
+    cardToken: 'test-card-token',
+    installments: 1,
+    acceptance: {
+      acceptanceToken: 'test-policy-token',
+      personalAuthToken: 'test-personal-token',
+      policyAccepted: true,
+      personalDataAccepted: true,
+    },
+  };
+  function payments(
+    mode: 'approve' | 'decline' | 'pending' | 'timeout' = 'approve',
+  ) {
+    const paymentStore = new TypeOrmPaymentStore(db);
+    const finalize = new FinalizePayment(paymentStore);
+    let remote: Observation | null = null;
+    const send = jest.fn(({ record }: GatewayCreate) => {
+      remote = {
+        id: 'remote-' + record.view.id,
+        reference: record.reference,
+        amountCents: record.amountCents,
+        currency: 'COP',
+        environment: 'UAT_SANDBOX',
+        status:
+          mode === 'decline'
+            ? 'DECLINED'
+            : mode === 'pending'
+              ? 'PENDING'
+              : 'APPROVED',
+      };
+      return mode === 'timeout'
+        ? errAsync<
+            Observation,
+            {
+              kind: 'GATEWAY_UNAVAILABLE';
+              operation: 'creation';
+              reason: 'transport';
+            }
+          >({
+            kind: 'GATEWAY_UNAVAILABLE',
+            operation: 'creation',
+            reason: 'transport',
+          })
+        : okAsync(remote);
+    });
+    const get = jest.fn(() =>
+      remote
+        ? okAsync(remote)
+        : errAsync<
+            Observation,
+            {
+              kind: 'GATEWAY_UNAVAILABLE';
+              operation: 'creation';
+              reason: 'schema';
+            }
+          >({
+            kind: 'GATEWAY_UNAVAILABLE',
+            operation: 'creation',
+            reason: 'schema',
+          }),
+    );
+    const gateway: PaymentGateway = {
+      configuration: () =>
+        errAsync({
+          kind: 'GATEWAY_UNAVAILABLE',
+          operation: 'creation',
+          reason: 'configuration',
+        }),
+      validateAcceptance: () => okAsync(undefined),
+      create: send,
+      get,
+    };
+    const start = new StartPayment(
+      paymentStore,
+      gateway,
+      { hash: (s) => createHash('sha256').update(s).digest('hex') },
+      finalize,
+    );
+    return {
+      paymentStore,
+      finalize,
+      start,
+      sync: new SyncPayment(paymentStore, gateway, finalize),
+      gateway,
+      send,
+      get,
+      setStatus: (status: RemoteStatus) => {
+        if (remote) remote = { ...remote, status };
+      },
+    };
+  }
+  async function pending() {
+    const c = await fixture();
+    const attempt = value(
+      await create.execute(c.sessionId, c.id, randomUUID(), accepted),
+    );
+    return { c, attempt };
+  }
+  it('sends one charge for concurrent pay and finalizes an approval exactly once', async () => {
+    const { c, attempt } = await pending();
+    const p = payments();
+    const responses = await Promise.all([
+      p.start.execute(c.sessionId, attempt.id, payInput),
+      p.start.execute(c.sessionId, attempt.id, payInput),
+    ]);
+    expect(responses.every((r) => r.isOk())).toBe(true);
+    expect(p.send).toHaveBeenCalledTimes(1);
+    expect(
+      (
+        await db
+          .getRepository(ProductOrmEntity)
+          .findOneByOrFail({ id: productId })
+      ).stock,
+    ).toBe(0);
+    expect(await db.query('SELECT status FROM deliveries')).toEqual([
+      { status: 'READY' },
+    ]);
+    expect(
+      (await db.getRepository(CheckoutOrmEntity).findOneByOrFail({ id: c.id }))
+        .status,
+    ).toBe('PAID');
+    await Promise.all([
+      p.sync.execute(c.sessionId, attempt.id),
+      p.sync.execute(c.sessionId, attempt.id),
+    ]);
+    expect(await db.query('SELECT status FROM deliveries')).toEqual([
+      { status: 'READY' },
+    ]);
+    expect(
+      (
+        await db
+          .getRepository(ProductOrmEntity)
+          .findOneByOrFail({ id: productId })
+      ).stock,
+    ).toBe(0);
+    const row = await db
+      .getRepository(TransactionOrmEntity)
+      .findOneByOrFail({ id: attempt.id });
+    expect(row.payRequestHash).toHaveLength(64);
+    expect(JSON.stringify(row)).not.toContain(payInput.cardToken);
+    expect(JSON.stringify(row)).not.toContain(
+      payInput.acceptance.acceptanceToken,
+    );
+  });
+  it('commits the claim before HTTP, so another SQL connection can lock the checkout during the send', async () => {
+    const { c, attempt } = await pending();
+    const p = payments();
+    const original = p.send;
+    p.gateway.create = (input) =>
+      ResultAsync.fromPromise(
+        db.transaction(async (manager) => {
+          await manager.query(
+            'SELECT id FROM checkouts WHERE id=$1 FOR UPDATE NOWAIT',
+            [c.id],
+          );
+          const row = await manager.findOneByOrFail(TransactionOrmEntity, {
+            id: attempt.id,
+          });
+          expect(row.dispatchStatus).toBe('IN_FLIGHT');
+          return input;
+        }),
+        () => ({
+          kind: 'GATEWAY_UNAVAILABLE' as const,
+          operation: 'creation' as const,
+          reason: 'transport' as const,
+        }),
+      ).andThen(original);
+    expect(
+      value(await p.start.execute(c.sessionId, attempt.id, payInput)).status,
+    ).toBe('APPROVED');
+  });
+  it('keeps timeout UNKNOWN and HELD and blocks resend or different payload', async () => {
+    const { c, attempt } = await pending();
+    const p = payments('timeout');
+    expect(
+      value(await p.start.execute(c.sessionId, attempt.id, payInput))
+        .dispatchStatus,
+    ).toBe('UNKNOWN');
+    await p.start.execute(c.sessionId, attempt.id, payInput);
+    expect(p.send).toHaveBeenCalledTimes(1);
+    const different = await p.start.execute(c.sessionId, attempt.id, {
+      ...payInput,
+      cardToken: 'other',
+    });
+    expect(different.isErr() && different.error.kind).toBe('PAYLOAD_CONFLICT');
+    await p.sync.execute(c.sessionId, attempt.id);
+    expect(p.get).not.toHaveBeenCalled();
+    expect(await available()).toBe(0);
+    expect(
+      (
+        await db
+          .getRepository(ProductOrmEntity)
+          .findOneByOrFail({ id: productId })
+      ).stock,
+    ).toBe(1);
+    expect(
+      (
+        await db
+          .getRepository(InventoryReservationOrmEntity)
+          .findOneByOrFail({ transactionId: attempt.id })
+      ).status,
+    ).toBe('HELD');
+  });
+  it('releases a verified decline without changing stock or creating delivery', async () => {
+    const { c, attempt } = await pending();
+    const p = payments('decline');
+    expect(
+      value(await p.start.execute(c.sessionId, attempt.id, payInput)).status,
+    ).toBe('DECLINED');
+    expect(await available()).toBe(1);
+    expect(
+      (
+        await db
+          .getRepository(ProductOrmEntity)
+          .findOneByOrFail({ id: productId })
+      ).stock,
+    ).toBe(1);
+    expect(await db.query('SELECT * FROM deliveries')).toEqual([]);
+    expect(
+      (await db.getRepository(CheckoutOrmEntity).findOneByOrFail({ id: c.id }))
+        .status,
+    ).toBe('DRAFT');
+  });
+  it('rolls back stock, attempt, reservation and checkout when delivery insertion fails', async () => {
+    const { c, attempt } = await pending();
+    const p = payments();
+    await db.query(
+      "ALTER TABLE deliveries ADD CONSTRAINT test_delivery_failure CHECK (status <> 'READY') NOT VALID",
+    );
+    try {
+      const r = await p.start.execute(c.sessionId, attempt.id, payInput);
+      expect(r.isErr() && r.error.kind).toBe('PERSISTENCE_UNAVAILABLE');
+      expect(
+        (
+          await db
+            .getRepository(ProductOrmEntity)
+            .findOneByOrFail({ id: productId })
+        ).stock,
+      ).toBe(1);
+      expect(
+        (
+          await db
+            .getRepository(TransactionOrmEntity)
+            .findOneByOrFail({ id: attempt.id })
+        ).dispatchStatus,
+      ).toBe('SUBMITTED');
+      expect(
+        (
+          await db
+            .getRepository(InventoryReservationOrmEntity)
+            .findOneByOrFail({ transactionId: attempt.id })
+        ).status,
+      ).toBe('HELD');
+      expect(
+        (
+          await db
+            .getRepository(CheckoutOrmEntity)
+            .findOneByOrFail({ id: c.id })
+        ).status,
+      ).toBe('PAYMENT_PENDING');
+      expect(await db.query('SELECT * FROM deliveries')).toEqual([]);
+      await p.start.execute(c.sessionId, attempt.id, payInput);
+      expect(p.send).toHaveBeenCalledTimes(1);
+    } finally {
+      await db.query(
+        'ALTER TABLE deliveries DROP CONSTRAINT test_delivery_failure',
+      );
+    }
+    expect(value(await p.sync.execute(c.sessionId, attempt.id)).status).toBe(
+      'APPROVED',
+    );
+    expect(p.send).toHaveBeenCalledTimes(1);
+    expect((await db.query<unknown[]>('SELECT * FROM deliveries')).length).toBe(
+      1,
+    );
+  });
+  it('finalizes concurrent pending sync once, and rejects conflicting terminal or amount observations', async () => {
+    const { c, attempt } = await pending();
+    const p = payments('pending');
+    expect(
+      value(await p.start.execute(c.sessionId, attempt.id, payInput))
+        .dispatchStatus,
+    ).toBe('SUBMITTED');
+    const row = value(await p.paymentStore.read(c.sessionId, attempt.id));
+    const bad: Observation = {
+      id: row.providerId ?? 'missing',
+      reference: row.reference,
+      amountCents: row.amountCents + 1,
+      currency: 'COP',
+      status: 'APPROVED',
+      environment: 'UAT_SANDBOX',
+    };
+    const wrong = await p.finalize.execute(c.sessionId, attempt.id, bad);
+    expect(wrong.isErr() && wrong.error.kind).toBe('OBSERVATION_CONFLICT');
+    const wrongReference = await p.finalize.execute(c.sessionId, attempt.id, {
+      ...bad,
+      amountCents: row.amountCents,
+      reference: 'foreign',
+    });
+    expect(wrongReference.isErr()).toBe(true);
+    expect(
+      (
+        await db
+          .getRepository(ProductOrmEntity)
+          .findOneByOrFail({ id: productId })
+      ).stock,
+    ).toBe(1);
+    p.setStatus('APPROVED');
+    const results = await Promise.all([
+      p.sync.execute(c.sessionId, attempt.id),
+      p.sync.execute(c.sessionId, attempt.id),
+    ]);
+    expect(results.every((r) => r.isOk())).toBe(true);
+    expect((await db.query<unknown[]>('SELECT * FROM deliveries')).length).toBe(
+      1,
+    );
+    p.setStatus('DECLINED');
+    const conflict = await p.sync.execute(c.sessionId, attempt.id);
+    expect(conflict.isErr() && conflict.error.kind).toBe(
+      'OBSERVATION_CONFLICT',
+    );
+    expect(
+      (
+        await db
+          .getRepository(ProductOrmEntity)
+          .findOneByOrFail({ id: productId })
+      ).stock,
+    ).toBe(0);
+  });
+  it('expires before sending, preserves local GET and handles old unidentified IN_FLIGHT on sync', async () => {
+    const { c, attempt } = await pending();
+    const p = payments();
+    await expire(attempt.id);
+    const r = await p.start.execute(c.sessionId, attempt.id, payInput);
+    expect(r.isErr() && r.error.kind).toBe('RESERVATION_EXPIRED');
+    expect(p.send).not.toHaveBeenCalled();
+    expect(
+      (await db.getRepository(CheckoutOrmEntity).findOneByOrFail({ id: c.id }))
+        .status,
+    ).toBe('DRAFT');
+    expect(
+      value(await store.get(c.sessionId, attempt.id, new Date())).status,
+    ).toBe('EXPIRED');
+    const next = value(
+      await create.execute(c.sessionId, c.id, randomUUID(), accepted),
+    );
+    await db.getRepository(TransactionOrmEntity).update(next.id, {
+      dispatchStatus: 'IN_FLIGHT',
+      submissionStartedAt: new Date(0),
+      payRequestHash: 'a'.repeat(64),
+      acceptanceEvidence: { accepted: true },
+    });
+    expect(
+      value(await p.sync.execute(c.sessionId, next.id)).dispatchStatus,
+    ).toBe('UNKNOWN');
+    expect(p.get).not.toHaveBeenCalled();
   });
 });

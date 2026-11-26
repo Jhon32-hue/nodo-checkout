@@ -25,6 +25,9 @@ export function failure(error: CheckoutError): HttpException {
         : ['RESOURCE_NOT_FOUND', 'PRODUCT_NOT_FOUND'].includes(error.kind)
           ? 404
           : [
+                'PAYLOAD_CONFLICT',
+                'RESERVATION_EXPIRED',
+                'OBSERVATION_CONFLICT',
                 'CHECKOUT_LOCKED',
                 'IDEMPOTENCY_CONFLICT',
                 'SUMMARY_CHANGED',

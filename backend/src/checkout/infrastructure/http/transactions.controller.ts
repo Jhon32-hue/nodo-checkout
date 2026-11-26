@@ -78,7 +78,7 @@ class AttemptDto {
   @ApiProperty({ type: String, nullable: true, format: 'uuid' }) deliveryId!:
     string | null;
 }
-class AttemptResponseDto {
+export class AttemptResponseDto {
   @ApiProperty({ type: AttemptDto }) data!: AttemptDto;
 }
 class SummaryDto extends AcceptedSummaryDto {

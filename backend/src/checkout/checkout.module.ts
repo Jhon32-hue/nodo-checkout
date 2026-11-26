@@ -1,3 +1,14 @@
+import { PaymentsController } from '../payments/infrastructure/payments.controller';
+import { TypeOrmPaymentStore } from '../payments/infrastructure/payment.store';
+import { WompiPaymentGateway } from '../payments/infrastructure/wompi.gateway';
+import { PAYMENT_GATEWAY } from '../payments/application/payment-ports';
+import type { PaymentGateway } from '../payments/application/payment-ports';
+import {
+  GetPaymentConfig,
+  StartPayment,
+  SyncPayment,
+  FinalizePayment,
+} from '../payments/application/payment-cases';
 import { createHash } from 'node:crypto';
 import { TransactionsController } from './infrastructure/http/transactions.controller';
 import { TypeOrmTransactionStore } from './infrastructure/typeorm/transaction.store';
@@ -25,8 +36,58 @@ import {
   GetSummary,
 } from './application/checkout-cases';
 @Module({
-  controllers: [CheckoutsController, TransactionsController],
+  controllers: [
+    CheckoutsController,
+    TransactionsController,
+    PaymentsController,
+  ],
   providers: [
+    TypeOrmPaymentStore,
+    {
+      provide: PAYMENT_GATEWAY,
+      inject: [ConfigService],
+      useFactory: (c: ConfigService) =>
+        new WompiPaymentGateway({
+          baseUrl: c.get<string>('WOMPI_BASE_URL'),
+          publicKey: c.get<string>('WOMPI_PUBLIC_KEY'),
+          privateKey: c.get<string>('WOMPI_PRIVATE_KEY'),
+          integritySecret: c.get<string>('WOMPI_INTEGRITY_SECRET'),
+        }),
+    },
+    {
+      provide: GetPaymentConfig,
+      inject: [PAYMENT_GATEWAY],
+      useFactory: (g: PaymentGateway) => new GetPaymentConfig(g),
+    },
+    {
+      provide: FinalizePayment,
+      inject: [TypeOrmPaymentStore],
+      useFactory: (s: TypeOrmPaymentStore) => new FinalizePayment(s),
+    },
+    {
+      provide: StartPayment,
+      inject: [TypeOrmPaymentStore, PAYMENT_GATEWAY, FinalizePayment],
+      useFactory: (
+        s: TypeOrmPaymentStore,
+        g: PaymentGateway,
+        f: FinalizePayment,
+      ) =>
+        new StartPayment(
+          s,
+          g,
+          { hash: (value) => createHash('sha256').update(value).digest('hex') },
+          f,
+        ),
+    },
+    {
+      provide: SyncPayment,
+      inject: [TypeOrmPaymentStore, PAYMENT_GATEWAY, FinalizePayment],
+      useFactory: (
+        s: TypeOrmPaymentStore,
+        g: PaymentGateway,
+        f: FinalizePayment,
+      ) => new SyncPayment(s, g, f),
+    },
     TypeOrmTransactionStore,
     {
       provide: CreateTransaction,

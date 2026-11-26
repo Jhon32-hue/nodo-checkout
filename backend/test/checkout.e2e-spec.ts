@@ -1,3 +1,11 @@
+import { okAsync, errAsync } from 'neverthrow';
+import { PAYMENT_GATEWAY } from '../src/payments/application/payment-ports';
+import type { GatewayCreate } from '../src/payments/application/payment-ports';
+import type {
+  Observation,
+  PublicPaymentConfig,
+  GatewayError,
+} from '../src/payments/domain/payment';
 import Ajv from 'ajv';
 import type { OpenAPIObject } from '@nestjs/swagger';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
@@ -22,6 +30,62 @@ import { CustomerOrmEntity } from '../src/checkout/infrastructure/typeorm/custom
 import { TransactionOrmEntity } from '../src/checkout/infrastructure/typeorm/transaction.entity';
 import { ProductOrmEntity } from '../src/catalog/infrastructure/typeorm/product.entity';
 describe('Recoverable checkout (isolated PostgreSQL)', () => {
+  const publicConfig: PublicPaymentConfig = {
+    environment: 'UAT_SANDBOX',
+    publicKey: 'pub_test_fixture',
+    tokenizationUrl: 'https://api-sandbox.co.uat.wompi.dev/v1/tokens/cards',
+    installments: 1,
+    acceptance: {
+      acceptanceToken: 'fixture-policy',
+      personalAuthToken: 'fixture-personal',
+      policyUrl: 'https://example.test/policy',
+      personalDataUrl: 'https://example.test/personal',
+    },
+  };
+  let remoteObservation: Observation | null = null;
+  let configUnavailable = false;
+  let lookupUnavailable = false;
+  const send = jest.fn(({ record }: GatewayCreate) => {
+    remoteObservation = {
+      id: 'remote-' + record.view.id,
+      reference: record.reference,
+      amountCents: record.amountCents,
+      currency: 'COP',
+      environment: 'UAT_SANDBOX',
+      status: 'PENDING',
+    };
+    return okAsync(remoteObservation);
+  });
+  const gateway = {
+    configuration: jest.fn(() =>
+      configUnavailable
+        ? errAsync<PublicPaymentConfig, GatewayError>({
+            kind: 'GATEWAY_UNAVAILABLE',
+            operation: 'configuration',
+            reason: 'http',
+            httpStatus: 422,
+          })
+        : okAsync<PublicPaymentConfig, GatewayError>(publicConfig),
+    ),
+    validateAcceptance: () => okAsync(undefined),
+    create: send,
+    get: jest.fn(() =>
+      lookupUnavailable
+        ? errAsync<Observation, GatewayError>({
+            kind: 'GATEWAY_UNAVAILABLE',
+            operation: 'query',
+            reason: 'http',
+            httpStatus: 422,
+          })
+        : remoteObservation
+          ? okAsync<Observation, GatewayError>(remoteObservation)
+          : errAsync<Observation, GatewayError>({
+              kind: 'GATEWAY_UNAVAILABLE',
+              operation: 'query',
+              reason: 'schema',
+            }),
+    ),
+  };
   let admin: Client;
   let source: DataSource;
   let app: INestApplication<App>;
@@ -53,6 +117,8 @@ describe('Recoverable checkout (isolated PostgreSQL)', () => {
     await source.runMigrations();
     await seedProducts(source);
     const module = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(PAYMENT_GATEWAY)
+      .useValue(gateway)
       .overrideProvider(ConfigService)
       .useValue(new ConfigService({ ...env, DB_NAME: name }))
       .compile();
@@ -250,6 +316,8 @@ describe('Recoverable checkout (isolated PostgreSQL)', () => {
     await app.close();
     const env = loadDatabaseEnvironment();
     const module = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(PAYMENT_GATEWAY)
+      .useValue(gateway)
       .overrideProvider(ConfigService)
       .useValue(new ConfigService({ ...env, DB_NAME: name }))
       .compile();
@@ -429,7 +497,7 @@ describe('Recoverable checkout (isolated PostgreSQL)', () => {
     };
     const body = { checkoutId: id, acceptedSummary };
     const key = randomUUID();
-    const post = (input: unknown = body, idempotencyKey = key) =>
+    const post = (input: object = body, idempotencyKey: string = key) =>
       request(app.getHttpServer())
         .post('/api/v1/transactions')
         .set('Origin', origin)
@@ -617,5 +685,206 @@ describe('Recoverable checkout (isolated PostgreSQL)', () => {
     expect(
       document.paths['/api/v1/transactions/{id}'].get?.responses['200'],
     ).toBeDefined();
+  });
+  it('protects payment configuration/pay/sync, sends once and finalizes concurrent sync once', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/payments/config')
+      .expect(401);
+    const auth = await login();
+    const other = await login();
+    const configuration = await request(app.getHttpServer())
+      .get('/api/v1/payments/config')
+      .set('Cookie', auth.cookie)
+      .expect(200)
+      .expect('Cache-Control', 'no-store');
+    expect(configuration.body).toEqual({ data: publicConfig });
+    configUnavailable = true;
+    try {
+      const failed = await request(app.getHttpServer())
+        .get('/api/v1/payments/config')
+        .set('Cookie', auth.cookie)
+        .expect(503);
+      expect(failed.body).toEqual({
+        error: {
+          code: 'GATEWAY_UNAVAILABLE',
+          message: 'Payment configuration or provider unavailable.',
+        },
+      });
+    } finally {
+      configUnavailable = false;
+    }
+    const checkoutId = await create(auth);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/checkouts/${checkoutId}`)
+      .set('Origin', origin)
+      .set('Cookie', auth.cookie)
+      .set('X-CSRF-Token', auth.csrf)
+      .send({ buyer, delivery })
+      .expect(200);
+    const made = await request(app.getHttpServer())
+      .post('/api/v1/transactions')
+      .set('Origin', origin)
+      .set('Cookie', auth.cookie)
+      .set('X-CSRF-Token', auth.csrf)
+      .set('Idempotency-Key', randomUUID())
+      .send({
+        checkoutId,
+        acceptedSummary: {
+          quantity: 2,
+          unitPriceCents: 12990000,
+          baseFeeCents: 50000,
+          deliveryFeeCents: 100000,
+          currency: 'COP',
+        },
+      })
+      .expect(201);
+    const id = (made.body as { data: { id: string } }).data.id;
+    const payload = {
+      cardToken: 'opaque-token',
+      installments: 1,
+      acceptance: {
+        acceptanceToken: 'fixture-policy',
+        personalAuthToken: 'fixture-personal',
+        policyAccepted: true,
+        personalDataAccepted: true,
+      },
+    };
+    const pay = (body: object = payload) =>
+      request(app.getHttpServer())
+        .post(`/api/v1/transactions/${id}/pay`)
+        .set('Origin', origin)
+        .set('Cookie', auth.cookie)
+        .set('X-CSRF-Token', auth.csrf)
+        .send(body);
+    for (const field of [
+      'pan',
+      'number',
+      'cvc',
+      'amountCents',
+      'reference',
+      'status',
+      'providerId',
+    ])
+      await pay({ ...payload, [field]: 'forbidden' }).expect(400);
+    for (const invalid of [
+      { ...payload, cardToken: ' ' },
+      { ...payload, cardToken: 'x'.repeat(1025) },
+      { ...payload, installments: 2 },
+      { ...payload, acceptance: { ...payload.acceptance, unknown: true } },
+      {
+        ...payload,
+        acceptance: { ...payload.acceptance, policyAccepted: false },
+      },
+      {
+        ...payload,
+        acceptance: {
+          ...payload.acceptance,
+          personalAuthToken: 'x'.repeat(8193),
+        },
+      },
+    ])
+      await pay(invalid).expect(400);
+    await request(app.getHttpServer())
+      .post(`/api/v1/transactions/${id}/pay`)
+      .set('Origin', origin)
+      .send(payload)
+      .expect(401);
+    await request(app.getHttpServer())
+      .post(`/api/v1/transactions/${id}/pay`)
+      .set('Origin', origin)
+      .set('Cookie', auth.cookie)
+      .send(payload)
+      .expect(403);
+    await request(app.getHttpServer())
+      .post(`/api/v1/transactions/${id}/pay`)
+      .set('Origin', 'https://evil.example')
+      .set('Cookie', auth.cookie)
+      .set('X-CSRF-Token', auth.csrf)
+      .send(payload)
+      .expect(403);
+    await request(app.getHttpServer())
+      .post(`/api/v1/transactions/${id}/pay`)
+      .set('Origin', origin)
+      .set('Cookie', other.cookie)
+      .set('X-CSRF-Token', other.csrf)
+      .send(payload)
+      .expect(404);
+    expect(send).not.toHaveBeenCalled();
+    const stock = (
+      await source
+        .getRepository(ProductOrmEntity)
+        .findOneByOrFail({ id: catalogProducts[0].id })
+    ).stock;
+    const before = (await source.query<unknown[]>('SELECT * FROM deliveries'))
+      .length;
+    const results = await Promise.all([
+      pay()
+        .expect(202)
+        .expect('Cache-Control', 'no-store')
+        .expect('Retry-After', '5'),
+      pay().expect(202),
+    ]);
+    expect(
+      results.every((r) => (r.body as { data: { id: string } }).data.id === id),
+    ).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
+    await pay({ ...payload, cardToken: 'different' }).expect(409);
+    const sync = () =>
+      request(app.getHttpServer())
+        .post(`/api/v1/transactions/${id}/sync`)
+        .set('Origin', origin)
+        .set('Cookie', auth.cookie)
+        .set('X-CSRF-Token', auth.csrf);
+    await sync().send({ status: 'APPROVED' }).expect(400);
+    lookupUnavailable = true;
+    try {
+      const failedLookup = await sync().expect(503);
+      expect(failedLookup.body).toEqual({
+        error: {
+          code: 'GATEWAY_UNAVAILABLE',
+          message: 'Payment configuration or provider unavailable.',
+        },
+      });
+      expect(
+        (
+          await source
+            .getRepository(TransactionOrmEntity)
+            .findOneByOrFail({ id })
+        ).status,
+      ).toBe('PENDING');
+    } finally {
+      lookupUnavailable = false;
+    }
+    await request(app.getHttpServer())
+      .post(`/api/v1/transactions/${id}/sync`)
+      .set('Origin', origin)
+      .set('Cookie', other.cookie)
+      .set('X-CSRF-Token', other.csrf)
+      .expect(404);
+    if (!remoteObservation) throw new Error('Missing mock observation');
+    remoteObservation = { ...remoteObservation, status: 'APPROVED' };
+    await Promise.all([sync().expect(200), sync().expect(200)]);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(
+      (
+        await source
+          .getRepository(ProductOrmEntity)
+          .findOneByOrFail({ id: catalogProducts[0].id })
+      ).stock,
+    ).toBe(stock - 2);
+    expect(
+      (await source.query<unknown[]>('SELECT * FROM deliveries')).length,
+    ).toBe(before + 1);
+    const calls = gateway.get.mock.calls.length;
+    const local = await request(app.getHttpServer())
+      .get(`/api/v1/transactions/${id}`)
+      .set('Cookie', auth.cookie)
+      .expect(200);
+    expect(local.body).toMatchObject({
+      data: { status: 'APPROVED', reservationStatus: 'CONFIRMED' },
+    });
+    expect(gateway.get.mock.calls.length).toBe(calls);
+    await pay().expect(200);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });

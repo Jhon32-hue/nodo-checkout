@@ -3,7 +3,8 @@
 **Implementados:** catálogo GET /products y /products/:id; POST /checkout-sessions,
 POST /checkouts, GET/PATCH /checkouts/:id y GET /checkouts/:id/summary, bajo /api/v1.
 También POST /transactions y GET /transactions/:id están implementados.
-GET /, /docs y /docs-json se conservan. Cobro, sync y webhook siguen **propuestos**. Ver [modelo](data-model.md) y [flujo](checkout-flow.md).
+GET /payments/config, POST /transactions/:id/pay y /:id/sync también están implementados.
+GET /, /docs y /docs-json se conservan. Webhook sigue **propuesto**. Ver [modelo](data-model.md) y [flujo](checkout-flow.md).
 
 ## Reglas comunes
 
@@ -63,7 +64,7 @@ se envuelven en error.code/error.message. Swagger describe parámetros y respues
 
 ## Endpoints
 
-GET y POST checkout-sessions no admiten body; POST sync propuesto tampoco lo necesita; los campos de entrada de las demás rutas se
+GET y POST checkout-sessions no admiten body; POST sync tampoco lo necesita; los campos de entrada de las demás rutas se
 indican abajo. Los códigos de forma/autorización/infraestructura son comunes.
 
 | Método y ruta bajo /api/v1  | Caso de uso / acceso                            | Entrada                                                  | Éxito y efecto                                                                                          | Errores clave                                                                               |
@@ -218,6 +219,12 @@ NOT_SENT vencido (incluye históricos EXPIRED), sin mutar filas; pay marca EXPIR
 400 estructura; 401 sesión; 403 CSRF/firma/Origin; 404 recurso ajeno/inexistente;
 409 conflicto de estado, resumen, clave/payload o stock; 422 validación de
 negocio; 429 con Retry-After para frecuencia; 503 infraestructura no disponible.
+Diagnóstico interno del adaptador: operación configuration/creation/query, motivo
+transport/http/json/schema (o configuración local inválida) y HTTP externo cuando
+existe. Logs con lista permitida: ID local, referencia, etapa, código sanitizado,
+HTTP e ID remoto validado; sin cuerpos, tokens ni datos del comprador. La respuesta
+pública conserva su formato y no expone estos detalles internos.
+
 No filtrar errores/cuerpos externos. UNKNOWN mantiene reserva y bloquea nuevo
 intento. Un 503 después de posible envío tampoco autoriza otro cobro: consultar.
 Un nuevo intento solo tras resultado negativo definitivo o EXPIRED sin envío;
@@ -255,18 +262,56 @@ hashes. Recursos ajenos/inexistentes: mismo 404; resultado negativo definitivo: 
 | POST /transactions            | Backend                            | CARD, referencia única, monto histórico, firma de integridad y aceptaciones |
 | GET /transactions/:providerId | Backend                            | Confirmar resultado autenticado y comparar referencia/monto/moneda/ambiente |
 
-UAT observado el 2026-11-25: merchant info y GET /tokens/keys/tokenization
-respondieron 200 usando autenticación pública. Ambas aceptaciones presentes.
-La clave de cifrado llega como PEM en una línea: importación PEM directa fallida;
-contenido DER/SPKI válido, RSA 2048 bits, importado correctamente como DER.
-El futuro adaptador deberá normalizar el formato o importar DER; aún no hay
-cifrado ni adaptador. No se publican claves ni tokens. Tokenización, CORS,
-cobro/consulta de pago, eventos y recuperación sin ID siguen sin verificar.
+UAT observado: ambos GET públicos respondieron 200. La clave de cifrado llega como
+PEM en una línea; su DER/SPKI RSA 2048 es válido. La verificación cifrada normalizó
+solo la representación PEM, usando jose fuera del backend, sin alterar la clave.
+El adaptador de pagos usa fetch con timeout de 8 s, redirect:error, sin retries de
+POST y con validación de JSON unknown. Solo acepta el host UAT sandbox configurado.
+Ausencia/null/esquema inválido/transporte/HTTP se traducen sin cuerpos externos.
+GET transaction del proveedor se autentica con llave privada desde el backend.
+
+GET payments/config devuelve data obligatorio: environment=UAT_SANDBOX, publicKey,
+tokenizationUrl, installments=1 y acceptance (acceptanceToken, personalAuthToken,
+policyUrl, personalDataUrl). No incluye secretos. Sesión vigente y no-store;
+configuración o proveedor no disponible: 503 GATEWAY_UNAVAILABLE.
+
+Pay exige tokens opacos sin alterar contenido: cardToken 1..1024; cada aceptación
+1..8192, ambos consentimientos true y cuota 1. Se comparan identidad/hash/enlace del
+contrato y expiración si figura en el token con contratos vigentes. Esta comparación
+no verifica firmas JWT localmente: Wompi valida sus tokens firmados. Replay por
+hash se resuelve antes de esta comprobación temporal. El backend firma referencia
+
+- total histórico + COP + secreto con SHA-256 y mapea acceptance_token y
+  accept_personal_auth. No acepta ni persiste PAN/CVC ni tokens en claro.
+
+Claim IN_FLIGHT/hash/hora/evidencia mínima (consentimientos y hashes de tokens),
+commit, HTTP, persistencia de ID/SUBMITTED y FinalizePayment. No hay SQL abierto
+mientras se espera red. Si falla guardar el ID, no se pierde el bloqueo IN_FLIGHT;
+si falla la finalización después, el ID ya guardado permite reconsultar por sync.
+Un error de creación ambiguo devuelve 202 UNKNOWN, conserva HELD y no habilita
+otro POST; un 4xx no se interpreta por defecto como ausencia de cobro.
+
+FinalizePayment valida ID, referencia, importe, moneda y ambiente. APPROVED
+aplica stock/CONFIRMED/READY/PAID en un commit; negativo confirmado libera y vuelve
+a DRAFT. Mismo terminal: no-op; terminal contrario: 409 OBSERVATION_CONFLICT.
+Sync no admite body y nunca crea cobros: NOT_SENT devuelve 200 local; pendiente
+identificado se consulta; final 200, pendiente/incierto 202 y Retry-After:5.
+Consulta fallida: 503, sin liberar/cambiar el intento. Sin ID solo mantiene el
+bloqueo; IN_FLIGHT antiguo (>30 s) pasa a UNKNOWN al sync. Revisión manual sin
+búsqueda por referencia inventada. GET local no llama al proveedor ni escribe.
+
+UAT real: un APPROVED verificado con tokenización cifrada 201 y sync 200, stock
+10->9 y una entrega; sync repetido sin nuevos efectos. El escenario de rechazo
+terminó PENDING/UNKNOWN/HELD, sin reenvío ni DECLINED confirmado. No se declara
+resuelto ni se reproduce como éxito simulado. Un ensayo posterior independiente,
+con el cliente corregido, sí confirmó DECLINED: creación remota 201, consulta 200,
+RELEASED, stock intacto, ninguna entrega y checkout DRAFT. Se guardó evidencia
+antes del teardown; esto no recupera el intento perdido. Ver [evidencia resumida](../README.md#pago-sandbox-y-sincronización).
+CORS de navegador, rechazo real, eventos y recuperación sin ID no están verificados.
 
 Llave privada y secretos de integridad/eventos solo backend, inyectados; no copiar
-credenciales del PDF ni modificar la cuenta compartida. Verificar UAT antes de
-habilitar pago: host/TLS, auth, contratos, CORS de tokenización, firma, límites,
-cuota y errores que garantizan ausencia de cobro. Búsqueda por referencia **sin ID**
+credenciales del PDF ni modificar la cuenta compartida. Quedan por verificar CORS de navegador, límites completos y errores que
+garantizan ausencia de cobro; los GET de configuración y un aprobado ya se probaron. Búsqueda por referencia **sin ID**
 es una capacidad pendiente, no una ruta asumida; si no existe, revisión manual
 sin liberar/reintentar automáticamente.
 
@@ -282,5 +327,4 @@ contradictorios automáticamente.
 Referencias públicas consultadas en el diseño previo:
 [transacciones](https://docs.wompi.co/docs/colombia/transacciones/),
 [aceptaciones](https://docs.wompi.co/docs/colombia/tokens-de-aceptacion/) y
-[eventos](https://docs.wompi.co/docs/colombia/eventos/). No equivalen a una prueba
-UAT: en esta tarea no se tokeniza ni cobra.
+[eventos](https://docs.wompi.co/docs/colombia/eventos/). Son referencias de contrato; las verificaciones reales y sus límites se distinguen arriba.

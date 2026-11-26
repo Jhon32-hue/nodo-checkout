@@ -6,7 +6,8 @@ Lectura del catálogo y persistencia de sesión/borrador implementadas. SessionS
 guarda digest/expiración; CheckoutStore consulta por propietario y bloquea la compra
 al editar. Cliente por compra y delivery_draft se guardan en un único commit;
 Creación de intento PENDING, snapshots y reserva HELD implementada bajo locks;
-stock físico y entregas no cambian. Coordinación de pagos pendiente.
+crear el intento no cambia stock físico ni entregas; al aprobar sí cambian. Pay/FinalizePayment/sync implementan la coordinación con claims y locks;
+webhook y recuperación sin ID remota siguen pendientes.
 Una compra contiene un producto y cantidad; puede
 conservar varios intentos de pago, solo uno activo. Ver [flujo](checkout-flow.md)
 y [API](api-contract.md).
@@ -80,9 +81,9 @@ con futuras ediciones del catálogo o borrador.
 
 Índices únicos parciales por checkout: uno WHERE status='PENDING' y otro WHERE
 status='APPROVED'. Índice `(checkout_id, created_at)` para el historial. Los
-futuros repositorios solo deberán cambiar estado/identificador del proveedor,
-no campos históricos. Esa inmutabilidad de aplicación todavía no está
-implementada; las entidades no impiden editar esos campos con TypeORM/SQL.
+repositorios implementados cambian estado/ID/fechas/evidencia, sin editar los
+campos históricos. Sus operaciones y pruebas mantienen esa inmutabilidad en la
+aplicación; las entidades no impiden modificarla con TypeORM/SQL privilegiado.
 No se añaden triggers ni rutas administrativas; separar rol de migración y rol
 sin DDL al desplegar. Los CHECKs actuales validan límites, JSON de tipo objeto,
 hashes y combinaciones de estado/envío/fechas; no sustituyen DTOs ni validación
@@ -98,8 +99,8 @@ del contenido de comprador/destino.
 CreateTransaction ya crea intento y reserva en el mismo commit, con hash/clave
 idempotente y attemptNumber bajo lock de checkout. Expira solo su NOT_SENT vencido;
 la expiración se confirma ante errores posteriores de negocio, mientras un fallo
-SQL revierte toda la creación parcial. Entrega solo deberá existir con
-aprobación, en el mismo commit que confirma inventario. Su producto/destino
+SQL revierte toda la creación parcial. FinalizePayment crea entrega solo con
+aprobación verificada, en el mismo commit que confirma inventario. Su producto/destino
 histórico se obtiene del intento: no se copia otra vez. READY significa lista
 para entregar, no integración con transportista.
 
@@ -107,11 +108,11 @@ para entregar, no integración con transportista.
 de reservas HELD vigentes. Una HELD con envío NOT_SENT y expires_at vencido deja
 de ocupar disponibilidad; si el envío es IN_FLIGHT/SUBMITTED/UNKNOWN, sigue
 ocupándola **sin importar esa fecha**. La lectura del catálogo ya aplica esa regla; CreateTransaction ya la aplica
-bajo bloqueo; inicio/finalización futuros deberán conservarla. Al aprobar se decrementa stock y se marca CONFIRMED; al rechazar se
+bajo bloqueo; pay y finalización conservan ese bloqueo. Al aprobar se decrementa stock y se marca CONFIRMED; al rechazar se
 marca RELEASED. No hay contador reserved duplicado ni tabla inventory separada.
 
 CreateTransaction bloquea products antes de evaluar capacidad;
-los futuros casos de inicio/finalización respetarán ese mismo orden. Todos los escritores seguirán checkout -> intento propio
+pay y finalización respetan ese mismo orden. Todos los escritores seguirán checkout -> intento propio
 (si existe) -> product -> reserva propia. Así dos compradores no reservan la
 última unidad; no se bloquean compras ajenas para limpiar reservas vencidas.
 

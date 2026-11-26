@@ -325,7 +325,7 @@ describe('Catalog HTTP (isolated PostgreSQL)', () => {
       const responses = document.paths[path].get?.responses;
       if (!responses) throw new Error('Missing catalog response contract');
       for (const metadata of Object.values(responses)) {
-        if ('$ref' in metadata)
+        if (!metadata || '$ref' in metadata)
           throw new Error('Expected inline response metadata');
         expect(metadata.description.trim().length).toBeGreaterThan(0);
       }
