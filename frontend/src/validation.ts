@@ -144,6 +144,12 @@ export function message(error: unknown) {
           'Los importes cambiaron. Revisa el nuevo resumen y confirma otra vez.',
         INSUFFICIENT_STOCK: 'La disponibilidad cambió. Vuelve al catálogo.',
         TOKENIZATION: 'No pudimos validar la tarjeta. Revisa sus datos.',
+        SANDBOX_CARD_NOT_ALLOWED:
+          'Esta tarjeta no está habilitada para las pruebas. Usa una de las tarjetas de prueba indicadas en el formulario.',
+        TOKENIZATION_NETWORK:
+          'No pudimos comunicarnos con el servicio de pagos. Revisa tu conexión.',
+        TOKENIZATION_INVALID_RESPONSE:
+          'El servicio de pagos respondió de forma inesperada. Intenta de nuevo más tarde.',
         GATEWAY_UNAVAILABLE:
           'El servicio de pagos no está disponible en este momento.',
         PAYMENT_RESULT_UNKNOWN:

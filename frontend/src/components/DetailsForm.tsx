@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useForm, Controller, type Path } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import TextField from '@mui/material/TextField';
@@ -41,6 +41,20 @@ const buyerNames: Path<FormValues>[] = [
   'buyer.email',
   'buyer.phone',
 ];
+const sandboxCards = [
+  {
+    label: 'Compra aprobada',
+    action: 'Usar aprobada',
+    number: '4242424242424242',
+  },
+  {
+    label: 'Pago rechazado',
+    action: 'Usar rechazada',
+    number: '4111111111111111',
+  },
+] as const;
+const isSandbox = (environment?: string) =>
+  environment === 'UAT_SANDBOX' || environment === 'SANDBOX';
 export function DetailsForm({
   checkout,
   flow,
@@ -58,10 +72,13 @@ export function DetailsForm({
   const [optional, setOptional] = useState(false);
   const [config, setConfig] = useState<Config | null>(null);
   const [configError, setConfigError] = useState(false);
+  const [cardSelectionAnnouncement, setCardSelectionAnnouncement] =
+    useState('');
   const {
     register,
     handleSubmit,
     control,
+    clearErrors,
     trigger,
     subscribe,
     formState: { errors },
@@ -239,15 +256,68 @@ export function DetailsForm({
               name="card.number"
               control={control}
               render={({ field: cardNumber, fieldState }) => (
-                <CardNumberField
-                  value={cardNumber.value}
-                  onChange={cardNumber.onChange}
-                  onBlur={cardNumber.onBlur}
-                  inputRef={cardNumber.ref}
-                  error={fieldState.invalid}
-                  helperText={fieldState.error?.message}
-                  onValidate={() => void trigger('card.number')}
-                />
+                <Fragment>
+                  {isSandbox(config?.environment) && (
+                    <aside
+                      className={styles.sandboxCardHelp}
+                      aria-labelledby="sandbox-card-help-title"
+                    >
+                      <div>
+                        <h4 id="sandbox-card-help-title">Tarjetas de prueba</h4>
+                        <p>
+                          Este entorno acepta únicamente tarjetas ficticias de
+                          prueba.
+                        </p>
+                      </div>
+                      <div className={styles.sandboxCardOptions}>
+                        {sandboxCards.map((option) => (
+                          <div key={option.number}>
+                            <span>{option.label}</span>
+                            <code>
+                              {option.number.replace(/(\d{4})(?=\d)/g, '$1 ')}
+                            </code>
+                            <Button
+                              type="button"
+                              size="small"
+                              variant="text"
+                              onClick={() => {
+                                cardNumber.onChange(option.number);
+                                void trigger('card.number');
+                                clearErrors('card.holder');
+                                setCardSelectionAnnouncement(
+                                  'Tarjeta de prueba seleccionada.',
+                                );
+                                document.getElementById('card.holder')?.focus();
+                              }}
+                            >
+                              {option.action}
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                      <p>
+                        Usa una fecha futura y un CVC de tres dígitos, por
+                        ejemplo 123.
+                      </p>
+                      <span
+                        className={styles.srOnly}
+                        role="status"
+                        aria-live="polite"
+                      >
+                        {cardSelectionAnnouncement}
+                      </span>
+                    </aside>
+                  )}
+                  <CardNumberField
+                    value={cardNumber.value}
+                    onChange={cardNumber.onChange}
+                    onBlur={cardNumber.onBlur}
+                    inputRef={cardNumber.ref}
+                    error={fieldState.invalid}
+                    helperText={fieldState.error?.message}
+                    onValidate={() => void trigger('card.number')}
+                  />
+                </Fragment>
               )}
             />
             {field('card.holder', 'Titular de la tarjeta', {

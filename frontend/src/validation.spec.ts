@@ -131,6 +131,15 @@ describe('Validaciones del formulario', () => {
     expect(message(new ApiError('TOKENIZATION'))).toContain(
       'validar la tarjeta',
     );
+    expect(message(new ApiError('SANDBOX_CARD_NOT_ALLOWED'))).toBe(
+      'Esta tarjeta no está habilitada para las pruebas. Usa una de las tarjetas de prueba indicadas en el formulario.',
+    );
+    expect(message(new ApiError('TOKENIZATION_NETWORK'))).toContain(
+      'servicio de pagos',
+    );
+    expect(message(new ApiError('TOKENIZATION_INVALID_RESPONSE'))).toContain(
+      'forma inesperada',
+    );
     expect(message(new ApiError('GATEWAY_UNAVAILABLE'))).toContain(
       'servicio de pagos',
     );

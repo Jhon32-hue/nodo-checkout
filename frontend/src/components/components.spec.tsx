@@ -12,6 +12,8 @@ import { Summary } from './Summary';
 import { Result, paymentPresentation } from './Result';
 import { Dialog } from './Dialog';
 import { DetailsForm } from './DetailsForm';
+import { Provider } from 'react-redux';
+import { makeStore } from '../state/store';
 import type { Flow } from '../state/flow';
 import {
   product,
@@ -26,6 +28,7 @@ function flow() {
     configuration: jest.fn().mockResolvedValue(config),
     details: jest.fn().mockResolvedValue(undefined),
     sync: jest.fn().mockResolvedValue(undefined),
+    confirm: jest.fn().mockResolvedValue(undefined),
     recover: jest.fn(),
     back: jest.fn(),
     finishApprovedTransition: jest.fn(),
@@ -458,6 +461,82 @@ it('no muestra error de tarjeta mientras se empieza a escribir y valida al salir
     await screen.findByText('Faltan 12 dígitos para completar el número.'),
   ).toBeInTheDocument();
   expect(f.details).not.toHaveBeenCalled();
+});
+it('ofrece tarjetas Sandbox solo por elección y las conserva fuera de Redux y storage', async () => {
+  const f = flow();
+  const store = makeStore();
+  const storeBefore = store.getState();
+  const localWrite = jest.spyOn(Storage.prototype, 'setItem');
+  const consoleWrite = jest.spyOn(console, 'log').mockImplementation(() => {});
+  const localBefore = { ...window.localStorage };
+  const sessionBefore = { ...window.sessionStorage };
+  const locationBefore = window.location.href;
+  render(
+    <Provider store={store}>
+      <DetailsForm checkout={checkout} flow={f} busy={false} />
+    </Provider>,
+  );
+
+  expect(
+    await screen.findByRole('heading', { name: 'Tarjetas de prueba' }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(
+      'Este entorno acepta únicamente tarjetas ficticias de prueba.',
+    ),
+  ).toBeInTheDocument();
+  expect(screen.getByLabelText('Número de tarjeta')).toHaveValue('');
+
+  const approved = screen.getByRole('button', { name: 'Usar aprobada' });
+  act(() => approved.focus());
+  expect(approved).toHaveFocus();
+  fireEvent.click(approved);
+  await waitFor(() =>
+    expect(screen.getByLabelText('Número de tarjeta')).toHaveValue(
+      '4242 4242 4242 4242',
+    ),
+  );
+  expect(screen.getByLabelText('Marca detectada: Visa')).toBeInTheDocument();
+  expect(screen.getByLabelText('Titular de la tarjeta')).toHaveFocus();
+  expect(screen.getByLabelText('Titular de la tarjeta')).toHaveValue('');
+  expect(screen.getByLabelText('Mes (MM)')).toHaveValue('');
+  expect(screen.getByLabelText('Año (AAAA)')).toHaveValue('');
+  expect(screen.getByLabelText('CVC')).toHaveValue('');
+  expect(
+    screen.getByText('Tarjeta de prueba seleccionada.'),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole('heading', { name: 'Tarjeta de crédito' }),
+  ).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Usar rechazada' }));
+  expect(screen.getByLabelText('Número de tarjeta')).toHaveValue(
+    '4111 1111 1111 1111',
+  );
+  expect(f.details).not.toHaveBeenCalled();
+  expect(f.confirm).not.toHaveBeenCalled();
+  expect(f.sync).not.toHaveBeenCalled();
+  expect(localWrite).not.toHaveBeenCalled();
+  expect(consoleWrite).not.toHaveBeenCalled();
+  expect(store.getState()).toEqual(storeBefore);
+  expect({ ...window.localStorage }).toEqual(localBefore);
+  expect({ ...window.sessionStorage }).toEqual(sessionBefore);
+  expect(window.location.href).toBe(locationBefore);
+  localWrite.mockRestore();
+  consoleWrite.mockRestore();
+});
+it('oculta la ayuda de tarjetas cuando la configuración no es Sandbox', async () => {
+  const f = flow();
+  jest.mocked(f.configuration).mockResolvedValue({
+    ...config,
+    environment: 'PRODUCTION',
+  } as unknown as typeof config);
+  render(<DetailsForm checkout={checkout} flow={f} busy={false} />);
+  await waitFor(() => expect(f.configuration).toHaveBeenCalledTimes(1));
+  expect(
+    screen.queryByRole('heading', { name: 'Tarjetas de prueba' }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Número de tarjeta')).toHaveValue('');
 });
 it('error de configuración no habilita tokenización', async () => {
   const f = flow();

@@ -9,7 +9,33 @@ export class TokenizationError extends ApiError {
     readonly reason: 'transport' | 'http' | 'json' | 'schema' | 'crypto',
     readonly httpStatus?: number,
   ) {
-    super('TOKENIZATION');
+    super(
+      stage === 'card' && reason === 'transport'
+        ? 'TOKENIZATION_NETWORK'
+        : stage === 'card' && (reason === 'json' || reason === 'schema')
+          ? 'TOKENIZATION_INVALID_RESPONSE'
+          : reason === 'http' && httpStatus !== undefined && httpStatus >= 500
+            ? 'GATEWAY_UNAVAILABLE'
+            : 'TOKENIZATION',
+    );
+  }
+}
+async function isSandboxCardNotAllowed(response: Response) {
+  if (response.status !== 422) return false;
+  try {
+    const body: unknown = await response.json();
+    if (!body || typeof body !== 'object') return false;
+    const error = Reflect.get(body, 'error');
+    if (!error || typeof error !== 'object') return false;
+    const messages = Reflect.get(error, 'messages');
+    return (
+      Reflect.get(error, 'type') === 'INPUT_VALIDATION_ERROR' &&
+      !!messages &&
+      typeof messages === 'object' &&
+      Object.hasOwn(messages, 'number')
+    );
+  } catch {
+    return false;
   }
 }
 export function normalizePem(value: string) {
@@ -58,7 +84,11 @@ export async function tokenize(card: Card, config: Config): Promise<string> {
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({ payload }),
     });
-    if (!result.ok) throw new TokenizationError('card', 'http', result.status);
+    if (!result.ok) {
+      if (await isSandboxCardNotAllowed(result))
+        throw new ApiError('SANDBOX_CARD_NOT_ALLOWED');
+      throw new TokenizationError('card', 'http', result.status);
+    }
     reason = 'json';
     const token = await result.json();
     reason = 'schema';
@@ -66,6 +96,8 @@ export async function tokenize(card: Card, config: Config): Promise<string> {
       throw new TokenizationError('card', 'schema', result.status);
     return token.data.id;
   } catch (error) {
+    if (error instanceof ApiError && error.code === 'SANDBOX_CARD_NOT_ALLOWED')
+      throw error;
     if (error instanceof TokenizationError) throw error;
     throw new TokenizationError(stage, reason);
   }
