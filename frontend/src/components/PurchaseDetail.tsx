@@ -5,6 +5,10 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
 import Button from '@mui/material/Button';
 import Skeleton from '@mui/material/Skeleton';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutlined';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
+import HourglassTopIcon from '@mui/icons-material/HourglassTop';
+import BlockIcon from '@mui/icons-material/Block';
 import { api } from '../services/api';
 import { message, money } from '../validation';
 import type { Attempt, Checkout, Product, PurchaseHistoryItem } from '../types';
@@ -57,6 +61,15 @@ export function PurchaseDetail({
   const product = products.find((p) => p.id === data?.checkout.productId);
   const summary = data?.attempt.summary;
   const delivery = data?.checkout.delivery;
+  const status = data?.attempt.status;
+  const tone =
+    status === 'APPROVED'
+      ? 'success'
+      : status === 'PENDING'
+        ? 'warning'
+        : status === 'VOIDED'
+          ? 'neutral'
+          : 'error';
   const sync = async () => {
     if (busy || !data) return;
     setBusy(true);
@@ -119,7 +132,20 @@ export function PurchaseDetail({
         )}
         {data && (
           <>
-            <p className={styles.historyStatus}>{statusText(data.attempt)}</p>
+            <p className={`${styles.detailStatus} ${styles[tone]}`}>
+              <span aria-hidden="true">
+                {status === 'APPROVED' ? (
+                  <CheckCircleOutlineIcon />
+                ) : status === 'PENDING' ? (
+                  <HourglassTopIcon />
+                ) : status === 'VOIDED' ? (
+                  <BlockIcon />
+                ) : (
+                  <ErrorOutlineIcon />
+                )}
+              </span>
+              {statusText(data.attempt)}
+            </p>
             <section className={styles.purchaseDetailProduct}>
               {product && (
                 <img
@@ -131,7 +157,6 @@ export function PurchaseDetail({
               )}
               <div>
                 <h2>{item.productName}</h2>
-                {product && <p>{product.description}</p>}
                 <p>{summary?.quantity ?? item.quantity} unidades</p>
                 {summary && (
                   <p>Precio unitario: {money(summary.unitPriceCents)} COP</p>

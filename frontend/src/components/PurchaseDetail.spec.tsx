@@ -40,6 +40,9 @@ it('consulta datos propios, muestra entrega e importes sin UUID ni tarjeta y sin
   expect(screen.getByRole('status')).toBeInTheDocument();
   await screen.findByText(delivery.addressLine1, { exact: false });
   expect(screen.getByText('Tarjeta de crédito')).toBeInTheDocument();
+  expect(screen.getByText(product.name)).toBeInTheDocument();
+  expect(screen.queryByText(product.description)).not.toBeInTheDocument();
+  expect(screen.getByText(/Precio unitario/)).toBeInTheDocument();
   expect(screen.getByText('Total COP')).toBeInTheDocument();
   expect(screen.queryByText(attempt.id)).not.toBeInTheDocument();
   expect(screen.queryByText(checkout.id)).not.toBeInTheDocument();
@@ -58,6 +61,39 @@ it('consulta datos propios, muestra entrega e importes sin UUID ni tarjeta y sin
   await waitFor(() => expect(opener).toHaveFocus());
   opener.remove();
 });
+it.each([
+  'APPROVED',
+  'PENDING',
+  'DECLINED',
+  'ERROR',
+  'VOIDED',
+  'EXPIRED',
+] as const)(
+  'mantiene texto e icono para %s sin enviar operaciones',
+  async (status) => {
+    jest.mocked(api.attempt).mockResolvedValue({ ...attempt, status });
+    render(
+      <PurchaseDetail item={item} products={[product]} onClose={jest.fn()} />,
+    );
+    await screen.findByText('Tarjeta de crédito');
+    const state = screen.getByText(
+      status === 'APPROVED'
+        ? 'Compra confirmada.'
+        : status === 'PENDING'
+          ? 'Estamos verificando el pago.'
+          : status === 'DECLINED'
+            ? 'El pago fue rechazado.'
+            : status === 'ERROR'
+              ? 'No pudimos completar el pago.'
+              : status === 'VOIDED'
+                ? 'El pago fue anulado.'
+                : 'La reserva venció.',
+    );
+    expect(state.querySelector('svg')).toBeInTheDocument();
+    expect(api.pay).not.toHaveBeenCalled();
+    expect(api.sync).not.toHaveBeenCalled();
+  },
+);
 it('una sesión ajena no muestra datos y permite reintentar la lectura', async () => {
   jest
     .mocked(api.checkout)

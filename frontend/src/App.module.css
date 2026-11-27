@@ -1360,10 +1360,42 @@
 }
 .purchaseDetail {
   overflow-wrap: anywhere;
+  background: #f8fafc;
 }
 .purchaseDetail section {
-  padding: 16px 0;
-  border-bottom: 1px solid #e2e8f0;
+  padding: 18px;
+  margin-bottom: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+}
+.detailStatus {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.detailStatus span {
+  display: flex;
+  flex: none;
+}
+.detailStatus.success {
+  color: #166534;
+  background: #dcfce7;
+}
+.detailStatus.warning {
+  color: #92400e;
+  background: #fef3c7;
+}
+.detailStatus.error {
+  color: #991b1b;
+  background: #fee2e2;
+}
+.detailStatus.neutral {
+  color: #374151;
+  background: #e5e7eb;
 }
 .purchaseDetail h2 {
   font-size: 22px;
@@ -1389,6 +1421,12 @@
   width: 120px;
   height: 120px;
   object-fit: contain;
+  background: #f3f4f6;
+  border-radius: 12px;
+  padding: 8px;
+}
+.purchaseAmounts dt {
+  color: #64748b;
 }
 .purchaseAmounts {
   display: grid;
@@ -1408,6 +1446,10 @@
   padding-top: 12px;
   border-top: 1px solid #e2e8f0;
   font-size: 20px;
+}
+.purchaseAmounts div:last-child dt {
+  color: #0f172a;
+  font-weight: 700;
 }
 @media (max-width: 480px) {
   .purchaseDetailProduct {
