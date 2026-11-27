@@ -24,6 +24,7 @@
     "migration:run": "typeorm-ts-node-commonjs migration:run -d src/infrastructure/database/data-source.ts",
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/infrastructure/database/data-source.ts",
     "seed:products": "ts-node src/infrastructure/database/seed.ts",
+    "inspect:transaction": "ts-node src/infrastructure/database/inspect-transaction.ts",
     "test:integration": "jest --config ./test/jest-integration.json --runInBand"
   },
   "dependencies": {
