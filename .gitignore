@@ -7,3 +7,18 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# Terraform runtime, plans and local inputs (never commit secrets).
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+infra/aws-demo/.local/

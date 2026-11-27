@@ -206,8 +206,8 @@ npm run test:cov
 React compilado en S3 privado; CloudFront para HTTPS y distribución SPA/API;
 imagen NestJS en ECR, API en ECS Fargate detrás de ALB y PostgreSQL en RDS.
 Secretos en Secrets Manager o SSM (elección pendiente), logs en CloudWatch y
-recursos reproducibles con Terraform. Ninguno de estos recursos está acreditado
-como operativo en este repositorio; faltan implementación, URLs y validación.
+recursos reproducibles con Terraform. La [infraestructura de demo](infra/aws-demo/README.md)
+está preparada y validada, sin aplicar. No hay recursos operativos ni URLs públicas.
 
 ## Limitaciones y referencias
 
