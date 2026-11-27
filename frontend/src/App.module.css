@@ -1254,21 +1254,20 @@
   align-items: end;
   justify-content: space-between;
   gap: 32px;
-  padding: 32px;
-  border-radius: 24px;
-  color: #fff;
-  background: #0f172a;
+  padding: 0;
+  color: #0f172a;
+  background: transparent;
   overflow: hidden;
 }
 .historyHero h1 {
   margin: 0;
-  font-size: clamp(34px, 6vw, 56px);
+  font-size: clamp(30px, 4vw, 40px);
   letter-spacing: -0.05em;
 }
 .historyHero p {
   max-width: 620px;
   margin: 12px 0 0;
-  color: #cbd5e1;
+  color: #64748b;
   line-height: 1.6;
 }
 .historyCount {
@@ -1340,13 +1339,69 @@
   box-shadow: 0 18px 36px rgba(15, 23, 42, 0.07);
 }
 .historyProductImage {
-  width: 150px;
+  width: 120px;
   aspect-ratio: 1;
   display: grid;
   place-items: center;
   border-radius: 16px;
   background: #f1f5f9;
   overflow: hidden;
+}
+.purchaseDetail {
+  overflow-wrap: anywhere;
+}
+.purchaseDetail section {
+  padding: 16px 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+.purchaseDetail h2 {
+  font-size: 22px;
+  margin: 0 0 8px;
+}
+.purchaseDetail h3 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+.purchaseDetail p {
+  margin: 6px 0;
+}
+.purchaseDetail address {
+  font-style: normal;
+  line-height: 1.7;
+}
+.purchaseDetailProduct {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 20px;
+}
+.purchaseDetailProduct img {
+  width: 120px;
+  height: 120px;
+  object-fit: contain;
+}
+.purchaseAmounts {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+.purchaseAmounts div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.purchaseAmounts dd {
+  margin: 0;
+  font-weight: 700;
+}
+.purchaseAmounts div:last-child {
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+  font-size: 20px;
+}
+@media (max-width: 480px) {
+  .purchaseDetailProduct {
+    grid-template-columns: 1fr;
+  }
 }
 .historyProductImage img {
   width: 100%;

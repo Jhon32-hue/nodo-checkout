@@ -20,7 +20,6 @@ const item = (
 });
 
 it('diferencia todos los estados y abre el detalle sin efectos propios', () => {
-  const onOpen = jest.fn();
   const items = [
     item(),
     item({ id: '55555555-5555-4555-8555-555555555555', status: 'DECLINED' }),
@@ -56,7 +55,6 @@ it('diferencia todos los estados y abre el detalle sin efectos propios', () => {
       error=""
       onBack={jest.fn()}
       onRetry={jest.fn()}
-      onOpen={onOpen}
     />,
   );
   expect(screen.getByText('Confirmada')).toBeInTheDocument();
@@ -68,12 +66,11 @@ it('diferencia todos los estados y abre el detalle sin efectos propios', () => {
   expect(screen.getByText('Verificando pago')).toBeInTheDocument();
   expect(screen.getAllByText('$ 191.400')).toHaveLength(7);
   fireEvent.click(screen.getAllByRole('button', { name: 'Ver detalle' })[0]);
-  expect(onOpen).toHaveBeenCalledWith(items[0]);
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
   expect(purchaseStatus(item({ status: 'PENDING' })).tone).toBe('warning');
 });
 
 it('consultar historial o abrir detalle no ejecuta pago ni sincronización', () => {
-  const onOpen = jest.fn();
   const retry = jest.fn();
   render(
     <Purchases
@@ -84,12 +81,11 @@ it('consultar historial o abrir detalle no ejecuta pago ni sincronización', () 
       error=""
       onBack={jest.fn()}
       onRetry={retry}
-      onOpen={onOpen}
     />,
   );
   expect(retry).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Ver detalle' }));
-  expect(onOpen).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
   expect(screen.queryByText(/pagar/i)).not.toBeInTheDocument();
   expect(screen.queryByText(/sincronizar/i)).not.toBeInTheDocument();
 });
@@ -105,7 +101,6 @@ it('presenta carga, vacío y error con reintento', () => {
       error=""
       onBack={jest.fn()}
       onRetry={retry}
-      onOpen={jest.fn()}
     />,
   );
   expect(
@@ -120,7 +115,6 @@ it('presenta carga, vacío y error con reintento', () => {
       error=""
       onBack={jest.fn()}
       onRetry={retry}
-      onOpen={jest.fn()}
     />,
   );
   expect(screen.getByText(/Aún no hay compras/)).toBeInTheDocument();
@@ -134,7 +128,6 @@ it('presenta carga, vacío y error con reintento', () => {
       error="No fue posible consultar"
       onBack={jest.fn()}
       onRetry={retry}
-      onOpen={jest.fn()}
     />,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Intentar de nuevo' }));

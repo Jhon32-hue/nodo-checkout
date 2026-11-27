@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import type { Product, PurchaseHistoryItem } from '../types';
+import { PurchaseDetail } from './PurchaseDetail';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import CalendarTodayOutlinedIcon from '@mui/icons-material/CalendarTodayOutlined';
@@ -74,7 +76,6 @@ export function Purchases({
   error,
   onBack,
   onRetry,
-  onOpen,
 }: {
   items: PurchaseHistoryItem[];
   products: Product[];
@@ -83,8 +84,8 @@ export function Purchases({
   error: string;
   onBack: () => void;
   onRetry: () => void;
-  onOpen: (item: PurchaseHistoryItem) => void;
 }) {
+  const [selected, setSelected] = useState<PurchaseHistoryItem | null>(null);
   return (
     <section className={styles.purchaseHistory} aria-labelledby="history-title">
       <button type="button" className={styles.historyBack} onClick={onBack}>
@@ -94,20 +95,11 @@ export function Purchases({
 
       <header className={styles.historyHero}>
         <div>
-          <span className={styles.eyebrow}>TU ACTIVIDAD</span>
           <h1 id="history-title">Mis compras</h1>
           <p>
-            Consulta el estado y los detalles de las compras realizadas en esta
-            sesión invitada.
+            Consulta el estado y los detalles de tus compras realizadas en esta
+            sesión.
           </p>
-        </div>
-        <div
-          className={styles.historyCount}
-          aria-label={`${items.length} compras`}
-        >
-          <ReceiptLongOutlinedIcon aria-hidden="true" />
-          <strong>{items.length}</strong>
-          <span>{items.length === 1 ? 'compra' : 'compras'}</span>
         </div>
       </header>
 
@@ -202,9 +194,6 @@ export function Purchases({
                     {date.format(new Date(item.createdAt))}
                   </span>
                 </div>
-                <span className={styles.historyReference}>
-                  Referencia <code>{item.reference}</code>
-                </span>
               </div>
 
               <div className={styles.historySummary}>
@@ -213,7 +202,7 @@ export function Purchases({
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => onOpen(item)}
+                  onClick={() => setSelected(item)}
                 >
                   Ver detalle
                   <ArrowForwardIcon fontSize="small" aria-hidden="true" />
@@ -223,6 +212,13 @@ export function Purchases({
           );
         })}
       </div>
+      {selected && (
+        <PurchaseDetail
+          item={selected}
+          products={products}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </section>
   );
 }

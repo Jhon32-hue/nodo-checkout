@@ -235,11 +235,6 @@ export function App({ flow }: { flow: Flow }) {
             error={historyError}
             onBack={() => setHistoryOpen(false)}
             onRetry={() => void flow.history()}
-            onOpen={(item) => {
-              setHistoryOpen(false);
-              dispatch(actions.selectedProduct(null));
-              void flow.openPurchase(item);
-            }}
           />
         ) : (
           <>
