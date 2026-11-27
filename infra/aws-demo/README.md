@@ -203,15 +203,15 @@ Fuentes: [Fargate](https://aws.amazon.com/fargate/pricing/),
 
 ## Eliminar la demo
 
-Solo cuando la evaluación haya terminado y se autorice borrar los datos:
-poner `desired_count=0` mediante un plan revisado, esperar/parar también las
-tareas puntuales y exportar cualquier dato que deba conservarse. RDS está
-configurado **sin snapshot final**: destroy elimina la base de esta demo.
-Vaciar explícitamente el bucket de SPA y borrar imágenes del repositorio ECR
-exactos obtenidos de outputs; ambos bloquean destroy si contienen archivos.
-Revisar `terraform plan -destroy` y ejecutar `terraform destroy` únicamente
-después de esa revisión. No destruir la RDS para corregir un `taint` de estado.
-El secreto de aplicación conserva 7 días de recuperación; no reutilizar el nombre
-mientras su eliminación esté pendiente. RDS elimina su secreto administrado.
-Revisar consola para snapshots/manuales, tareas, interfaces y cargos residuales.
-Nunca borrar ni manipular el PostgreSQL local de desarrollo para este proceso.
+Mantendré la demo disponible durante la evaluación. Antes de retirarla, revisaré
+qué datos debo conservar y los exportaré. El estado Terraform es local; lo
+conservaré para revisar `terraform plan -destroy` antes de ejecutar la eliminación.
+RDS está configurado **sin snapshot final automático**: destruirla elimina sus datos.
+
+Reduciré `desired_count` a cero mediante un plan revisado y comprobaré que no queden
+tareas en ejecución. Vaciaré el bucket de la SPA y el repositorio ECR identificados
+en los outputs, ya que su contenido bloquea la eliminación.
+
+Después comprobaré recursos y cargos residuales, incluidos snapshots manuales,
+tareas e interfaces. El secreto de aplicación tiene 7 días de recuperación y RDS
+elimina su secreto administrado.
