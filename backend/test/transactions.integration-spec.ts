@@ -549,7 +549,7 @@ describe('Transaction concurrency and atomicity (isolated PostgreSQL)', () => {
       payInput.acceptance.acceptanceToken,
     );
   });
-  it('commits the claim before HTTP, so another SQL connection can lock the checkout during the send', async () => {
+  it('commits PENDING, HELD and the claim before provider HTTP, then updates the same attempt without resend', async () => {
     const { c, attempt } = await pending();
     const p = payments();
     const original = p.send;
@@ -563,7 +563,18 @@ describe('Transaction concurrency and atomicity (isolated PostgreSQL)', () => {
           const row = await manager.findOneByOrFail(TransactionOrmEntity, {
             id: attempt.id,
           });
+          const reservation = await manager.findOneByOrFail(
+            InventoryReservationOrmEntity,
+            { transactionId: attempt.id },
+          );
+          expect(row.status).toBe('PENDING');
           expect(row.dispatchStatus).toBe('IN_FLIGHT');
+          expect(reservation.status).toBe('HELD');
+          expect(
+            await manager.countBy(TransactionOrmEntity, {
+              checkoutId: c.id,
+            }),
+          ).toBe(1);
           return input;
         }),
         () => ({
@@ -572,9 +583,23 @@ describe('Transaction concurrency and atomicity (isolated PostgreSQL)', () => {
           reason: 'transport' as const,
         }),
       ).andThen(original);
+    const result = value(
+      await p.start.execute(c.sessionId, attempt.id, payInput),
+    );
+    expect(result.status).toBe('APPROVED');
+    const persisted = await db
+      .getRepository(TransactionOrmEntity)
+      .findOneByOrFail({ id: attempt.id });
+    expect(persisted.providerTransactionId).toBe('remote-' + attempt.id);
     expect(
-      value(await p.start.execute(c.sessionId, attempt.id, payInput)).status,
-    ).toBe('APPROVED');
+      await db
+        .getRepository(TransactionOrmEntity)
+        .countBy({ checkoutId: c.id }),
+    ).toBe(1);
+    await store.get(c.sessionId, attempt.id, new Date());
+    await store.list(c.sessionId);
+    await p.sync.execute(c.sessionId, attempt.id);
+    expect(p.send).toHaveBeenCalledTimes(1);
   });
   it('keeps timeout UNKNOWN and HELD and blocks resend or different payload', async () => {
     const { c, attempt } = await pending();

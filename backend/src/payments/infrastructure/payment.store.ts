@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import { err, ok, ResultAsync } from 'neverthrow';
@@ -17,6 +17,12 @@ import {
   calculateSummary,
   validatePatch,
 } from '../../checkout/domain/checkout';
+import {
+  writeOperationalLog,
+  providerFingerprint,
+  type OperationalEvent,
+  type OperationalFields,
+} from '../../infrastructure/observability/operational-log';
 const unavailable = (): PaymentError => ({ kind: 'PERSISTENCE_UNAVAILABLE' });
 async function snapshot(
   manager: EntityManager,
@@ -66,6 +72,8 @@ async function snapshot(
 }
 @Injectable()
 export class TypeOrmPaymentStore implements PaymentStore {
+  private readonly logger = new Logger(TypeOrmPaymentStore.name);
+
   constructor(private readonly db: DataSource) {}
   read(sessionId: string, id: string) {
     return ResultAsync.fromPromise(
@@ -80,13 +88,30 @@ export class TypeOrmPaymentStore implements PaymentStore {
           : err<PaymentRecord, PaymentError>({ kind: 'RESOURCE_NOT_FOUND' });
       }),
       unavailable,
-    ).andThen((r) => r);
+    )
+      .map((result) => {
+        if (result.isOk())
+          writeOperationalLog(this.logger, 'payment.sync.started', {
+            checkoutId: result.value.view.checkoutId,
+            transactionId: result.value.view.id,
+            reference: result.value.reference,
+            providerEnvironment: result.value.environment,
+            previousStatus: result.value.view.status,
+            previousDispatchStatus: result.value.view.dispatchStatus,
+          });
+        return result;
+      })
+      .andThen((r) => r);
   }
   run<T>(
     sessionId: string,
     id: string,
     work: (ctx: PaymentContext) => Promise<Result<T, PaymentError>>,
   ) {
+    const events: Array<{
+      event: OperationalEvent;
+      fields: OperationalFields;
+    }> = [];
     return ResultAsync.fromPromise(
       this.db.transaction(async (manager) => {
         const own = await manager
@@ -121,6 +146,19 @@ export class TypeOrmPaymentStore implements PaymentStore {
               submissionStartedAt: now,
               acceptanceEvidence: { ...evidence },
             });
+            events.push({
+              event: 'payment.claimed',
+              fields: {
+                checkoutId: attempt.checkoutId,
+                transactionId: attempt.id,
+                reference: attempt.reference,
+                providerEnvironment: attempt.providerEnvironment,
+                previousStatus: attempt.status,
+                newStatus: attempt.status,
+                previousDispatchStatus: attempt.dispatchStatus,
+                newDispatchStatus: 'IN_FLIGHT',
+              },
+            });
           },
           expire: async (now) => {
             await manager.update(TransactionOrmEntity, id, {
@@ -135,13 +173,37 @@ export class TypeOrmPaymentStore implements PaymentStore {
             await manager.update(CheckoutOrmEntity, checkout.id, {
               status: 'DRAFT',
             });
+            events.push({
+              event: 'reservation.released',
+              fields: {
+                checkoutId: attempt.checkoutId,
+                transactionId: attempt.id,
+                reference: attempt.reference,
+                previousStatus: reservation.status,
+                newStatus: 'RELEASED',
+              },
+            });
           },
           submitted: async (providerId) => {
-            if (attempt.status === 'PENDING')
+            if (attempt.status === 'PENDING') {
               await manager.update(TransactionOrmEntity, id, {
                 providerTransactionId: providerId,
                 dispatchStatus: 'SUBMITTED',
               });
+              events.push({
+                event: 'provider.transaction.saved',
+                fields: {
+                  checkoutId: attempt.checkoutId,
+                  transactionId: attempt.id,
+                  reference: attempt.reference,
+                  providerEnvironment: attempt.providerEnvironment,
+                  previousDispatchStatus: attempt.dispatchStatus,
+                  newDispatchStatus: 'SUBMITTED',
+                  providerTransactionFingerprint:
+                    providerFingerprint(providerId),
+                },
+              });
+            }
           },
           unknown: async (reason) => {
             if (
@@ -152,6 +214,25 @@ export class TypeOrmPaymentStore implements PaymentStore {
               await manager.update(TransactionOrmEntity, id, {
                 dispatchStatus: 'UNKNOWN',
                 lastErrorCode: reason ?? 'STALE_IN_FLIGHT',
+              });
+            if (
+              attempt.status === 'PENDING' &&
+              attempt.dispatchStatus === 'IN_FLIGHT' &&
+              !attempt.providerTransactionId
+            )
+              events.push({
+                event: 'payment.unknown',
+                fields: {
+                  checkoutId: attempt.checkoutId,
+                  transactionId: attempt.id,
+                  reference: attempt.reference,
+                  providerEnvironment: attempt.providerEnvironment,
+                  previousStatus: attempt.status,
+                  newStatus: attempt.status,
+                  previousDispatchStatus: attempt.dispatchStatus,
+                  newDispatchStatus: 'UNKNOWN',
+                  errorCode: reason ?? 'STALE_IN_FLIGHT',
+                },
               });
           },
           observe: async (o, now) => {
@@ -184,6 +265,27 @@ export class TypeOrmPaymentStore implements PaymentStore {
               await manager.update(CheckoutOrmEntity, checkout.id, {
                 status: 'PAID',
               });
+              events.push(
+                {
+                  event: 'inventory.confirmed',
+                  fields: {
+                    checkoutId: attempt.checkoutId,
+                    transactionId: attempt.id,
+                    reference: attempt.reference,
+                    previousStatus: reservation.status,
+                    newStatus: 'CONFIRMED',
+                  },
+                },
+                {
+                  event: 'delivery.created',
+                  fields: {
+                    checkoutId: attempt.checkoutId,
+                    transactionId: attempt.id,
+                    reference: attempt.reference,
+                    newStatus: 'READY',
+                  },
+                },
+              );
             } else {
               await manager.update(
                 InventoryReservationOrmEntity,
@@ -193,12 +295,41 @@ export class TypeOrmPaymentStore implements PaymentStore {
               await manager.update(CheckoutOrmEntity, checkout.id, {
                 status: 'DRAFT',
               });
+              events.push({
+                event: 'reservation.released',
+                fields: {
+                  checkoutId: attempt.checkoutId,
+                  transactionId: attempt.id,
+                  reference: attempt.reference,
+                  previousStatus: reservation.status,
+                  newStatus: 'RELEASED',
+                },
+              });
             }
             await manager.update(TransactionOrmEntity, id, {
               status: o.status,
               dispatchStatus: 'SUBMITTED',
               providerTransactionId: o.id,
               finalizedAt: now,
+            });
+            events.push({
+              event:
+                o.status === 'APPROVED'
+                  ? 'payment.finalized.approved'
+                  : o.status === 'ERROR'
+                    ? 'payment.finalized.error'
+                    : 'payment.finalized.declined',
+              fields: {
+                checkoutId: attempt.checkoutId,
+                transactionId: attempt.id,
+                reference: attempt.reference,
+                providerEnvironment: o.environment,
+                previousStatus: attempt.status,
+                newStatus: o.status,
+                previousDispatchStatus: attempt.dispatchStatus,
+                newDispatchStatus: 'SUBMITTED',
+                providerTransactionFingerprint: providerFingerprint(o.id),
+              },
             });
           },
           view: async () => {
@@ -211,6 +342,13 @@ export class TypeOrmPaymentStore implements PaymentStore {
         return work(ctx);
       }),
       unavailable,
-    ).andThen((r) => r);
+    )
+      .map((result) => {
+        // Flush only after the database transaction has committed.
+        for (const item of events)
+          writeOperationalLog(this.logger, item.event, item.fields);
+        return result;
+      })
+      .andThen((r) => r);
   }
 }

@@ -12,6 +12,12 @@ import type {
   PayInput,
   RemoteStatus,
 } from '../domain/payment';
+import {
+  operationalLog,
+  providerFingerprint,
+  type OperationalEvent,
+  type OperationalFields,
+} from '../../infrastructure/observability/operational-log';
 export interface WompiEnvironment {
   baseUrl?: string;
   publicKey?: string;
@@ -26,14 +32,7 @@ const text = (v: unknown, max: number): v is string =>
 const opaqueId = (v: unknown): v is string =>
   text(v, 128) && v !== '.' && v !== '..' && /^[a-zA-Z0-9._:-]+$/.test(v);
 type Operation = 'configuration' | 'creation' | 'query';
-export interface PaymentDiagnostic {
-  stage: Operation;
-  code: string;
-  httpStatus?: number;
-  localId?: string;
-  reference?: string;
-  remoteId?: string;
-}
+export type PaymentDiagnostic = ReturnType<typeof operationalLog>;
 const logger = new Logger('PaymentGateway');
 const unavailable = (
   reason: 'configuration' | 'transport' | 'http' | 'json' | 'schema',
@@ -207,20 +206,8 @@ export class WompiPaymentGateway implements PaymentGateway {
         ? base
         : null;
   }
-  private report(event: PaymentDiagnostic) {
-    // Build an allowlist, never serialize an input, error, response or arbitrary properties.
-    this.diagnostic({
-      stage: event.stage,
-      code: event.code,
-      ...(event.httpStatus === undefined
-        ? {}
-        : { httpStatus: event.httpStatus }),
-      ...(opaqueId(event.localId) ? { localId: event.localId } : {}),
-      ...(text(event.reference, 64) && /^[a-zA-Z0-9_-]+$/.test(event.reference)
-        ? { reference: event.reference }
-        : {}),
-      ...(opaqueId(event.remoteId) ? { remoteId: event.remoteId } : {}),
-    });
+  private report(event: OperationalEvent, fields: OperationalFields) {
+    this.diagnostic(operationalLog(event, fields));
   }
   private request<T>(
     operation: Operation,
@@ -232,7 +219,34 @@ export class WompiPaymentGateway implements PaymentGateway {
     context: { localId?: string; reference?: string; remoteId?: string } = {},
   ): ResultAsync<T, GatewayError> {
     const call = async (): Promise<Result<T, GatewayError>> => {
-      if (!this.base) return err(unavailable('configuration', operation));
+      const started = Date.now();
+      const metadata: OperationalFields = {
+        operation,
+        providerEnvironment: 'UAT_SANDBOX',
+        ...(opaqueId(context.localId)
+          ? { transactionId: context.localId }
+          : {}),
+        ...(text(context.reference, 64) &&
+        /^[a-zA-Z0-9_-]+$/.test(context.reference)
+          ? { reference: context.reference }
+          : {}),
+        ...(opaqueId(context.remoteId)
+          ? {
+              providerTransactionFingerprint: providerFingerprint(
+                context.remoteId,
+              ),
+            }
+          : {}),
+      };
+      if (!this.base) {
+        this.report('provider.request.failed', {
+          ...metadata,
+          durationMs: Date.now() - started,
+          errorCode: 'GATEWAY_CONFIGURATION',
+        });
+        return err(unavailable('configuration', operation));
+      }
+      this.report('provider.request.started', metadata);
       let response: Response;
       try {
         response = await this.http(this.base + path, {
@@ -254,45 +268,64 @@ export class WompiPaymentGateway implements PaymentGateway {
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         });
       } catch {
+        this.report('provider.request.failed', {
+          ...metadata,
+          durationMs: Date.now() - started,
+          errorCode: 'GATEWAY_TRANSPORT',
+        });
         return err(unavailable('transport', operation));
       }
-      if (!response.ok)
+      if (!response.ok) {
+        this.report('provider.response.received', {
+          ...metadata,
+          providerHttpStatus: response.status,
+          durationMs: Date.now() - started,
+          errorCode: 'GATEWAY_HTTP',
+        });
         return err(unavailable('http', operation, response.status));
+      }
       let parsed: unknown;
       try {
         parsed = await response.json();
       } catch {
+        this.report('provider.response.received', {
+          ...metadata,
+          providerHttpStatus: response.status,
+          durationMs: Date.now() - started,
+          errorCode: 'GATEWAY_JSON',
+        });
         return err(unavailable('json', operation, response.status));
       }
-      return decode(parsed)
-        .mapErr(() => unavailable('schema', operation, response.status))
-        .map((value) => {
-          const remoteId =
-            record(value) && opaqueId(value.id) ? value.id : context.remoteId;
-          this.report({
-            ...context,
-            remoteId,
-            stage: operation,
-            code: 'VALIDATED',
-            httpStatus: response.status,
-          });
-          return value;
+      const decoded = decode(parsed);
+      if (decoded.isErr()) {
+        this.report('provider.response.received', {
+          ...metadata,
+          providerHttpStatus: response.status,
+          durationMs: Date.now() - started,
+          errorCode: 'GATEWAY_SCHEMA',
         });
+        return err(unavailable('schema', operation, response.status));
+      }
+      const remoteId =
+        record(decoded.value) && opaqueId(decoded.value.id)
+          ? decoded.value.id
+          : context.remoteId;
+      this.report('provider.response.received', {
+        ...metadata,
+        ...(remoteId
+          ? {
+              providerTransactionFingerprint: providerFingerprint(remoteId),
+            }
+          : {}),
+        providerHttpStatus: response.status,
+        durationMs: Date.now() - started,
+        errorCode: 'VALIDATED',
+      });
+      return decoded;
     };
     return ResultAsync.fromPromise(call(), () =>
       unavailable('transport', operation),
-    )
-      .andThen((result) => result)
-      .mapErr((error) => {
-        if (error.kind === 'GATEWAY_UNAVAILABLE')
-          this.report({
-            ...context,
-            stage: operation,
-            code: 'GATEWAY_' + error.reason.toUpperCase(),
-            httpStatus: error.httpStatus,
-          });
-        return error;
-      });
+    ).andThen((result) => result);
   }
   configuration() {
     return this.request(

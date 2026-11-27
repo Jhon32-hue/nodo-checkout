@@ -405,15 +405,25 @@ describe('Payment diagnostics allowlist', () => {
           ? {}
           : { httpStatus: reason === 'http' ? 422 : 201 }),
       });
-      expect(diagnostic).toHaveBeenCalledTimes(1);
-      expect(diagnostic.mock.calls[0][0]).toEqual({
-        stage: 'creation',
-        code: 'GATEWAY_' + reason.toUpperCase(),
-        localId: 'local',
+      expect(diagnostic).toHaveBeenCalledTimes(2);
+      expect(diagnostic.mock.calls[0][0]).toMatchObject({
+        event: 'provider.request.started',
+        operation: 'creation',
+        transactionId: 'local',
         reference: 'pc_reference',
+      });
+      expect(diagnostic.mock.calls[1][0]).toMatchObject({
+        event:
+          reason === 'transport'
+            ? 'provider.request.failed'
+            : 'provider.response.received',
+        operation: 'creation',
+        transactionId: 'local',
+        reference: 'pc_reference',
+        errorCode: 'GATEWAY_' + reason.toUpperCase(),
         ...(reason === 'transport'
           ? {}
-          : { httpStatus: reason === 'http' ? 422 : 201 }),
+          : { providerHttpStatus: reason === 'http' ? 422 : 201 }),
       });
       const serialized = JSON.stringify({
         result,
@@ -428,24 +438,28 @@ describe('Payment diagnostics allowlist', () => {
     const g = new WompiPaymentGateway(env, mock(body, 201), 8000, diagnostic);
     await g.create({ record, input: input() });
     await g.get(body.data.id, { localId: 'local', reference: 'pc_reference' });
-    expect(diagnostic.mock.calls.map(([event]) => event)).toEqual([
-      {
-        stage: 'creation',
-        code: 'VALIDATED',
-        httpStatus: 201,
-        localId: 'local',
-        reference: 'pc_reference',
-        remoteId: body.data.id,
-      },
-      {
-        stage: 'query',
-        code: 'VALIDATED',
-        httpStatus: 201,
-        localId: 'local',
-        reference: 'pc_reference',
-        remoteId: body.data.id,
-      },
+    const events = diagnostic.mock.calls.map(([event]) => event);
+    expect(events.map((event) => event.event)).toEqual([
+      'provider.request.started',
+      'provider.response.received',
+      'provider.request.started',
+      'provider.response.received',
     ]);
+    expect(events[1]).toMatchObject({
+      operation: 'creation',
+      errorCode: 'VALIDATED',
+      providerHttpStatus: 201,
+      transactionId: 'local',
+      reference: 'pc_reference',
+    });
+    expect(events[1].providerTransactionFingerprint).toMatch(/^[0-9a-f]{16}$/);
+    expect(events[3]).toMatchObject({
+      operation: 'query',
+      errorCode: 'VALIDATED',
+      providerHttpStatus: 201,
+      providerTransactionFingerprint: events[1].providerTransactionFingerprint,
+    });
+    expect(JSON.stringify(events)).not.toContain(body.data.id);
   });
   it('identifies configuration failure without sending or exposing environment values', async () => {
     const diagnostic = jest.fn<void, [PaymentDiagnostic]>(),
@@ -461,10 +475,13 @@ describe('Payment diagnostics allowlist', () => {
       operation: 'configuration',
       reason: 'configuration',
     });
-    expect(diagnostic).toHaveBeenCalledWith({
-      stage: 'configuration',
-      code: 'GATEWAY_CONFIGURATION',
-    });
+    expect(diagnostic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'provider.request.failed',
+        operation: 'configuration',
+        errorCode: 'GATEWAY_CONFIGURATION',
+      }),
+    );
     expect(http).not.toHaveBeenCalled();
   });
 });

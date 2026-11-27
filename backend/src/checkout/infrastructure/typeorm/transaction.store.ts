@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import { err, ok, ResultAsync } from 'neverthrow';
@@ -21,6 +21,7 @@ import { CustomerOrmEntity } from './customer.entity';
 import { ProductOrmEntity } from '../../../catalog/infrastructure/typeorm/product.entity';
 import { InventoryReservationOrmEntity } from '../../../catalog/infrastructure/typeorm/inventory-reservation.entity';
 import { DeliveryOrmEntity } from '../../../fulfillment/infrastructure/typeorm/delivery.entity';
+import { writeOperationalLog } from '../../../infrastructure/observability/operational-log';
 const unavailable = (): CheckoutError => ({ kind: 'PERSISTENCE_UNAVAILABLE' });
 async function view(
   manager: EntityManager,
@@ -44,12 +45,21 @@ async function view(
 }
 @Injectable()
 export class TypeOrmTransactionStore implements TransactionStore {
+  private readonly logger = new Logger(TypeOrmTransactionStore.name);
+
   constructor(private readonly db: DataSource) {}
   run(
     sessionId: string,
     checkoutId: string,
     work: (ctx: AttemptContext) => Promise<Result<AttemptView, CheckoutError>>,
   ) {
+    let created:
+      | {
+          checkoutId: string;
+          transactionId: string;
+          reference: string;
+        }
+      | undefined;
     return ResultAsync.fromPromise(
       this.db.transaction(async (manager) => {
         const checkout = await manager.findOne(CheckoutOrmEntity, {
@@ -174,6 +184,11 @@ export class TypeOrmTransactionStore implements TransactionStore {
             await manager.update(CheckoutOrmEntity, checkout.id, {
               status: 'PAYMENT_PENDING',
             });
+            created = {
+              checkoutId: checkout.id,
+              transactionId: attempt.id,
+              reference: attempt.reference,
+            };
             return view(manager, attempt);
           },
         };
@@ -181,7 +196,25 @@ export class TypeOrmTransactionStore implements TransactionStore {
         return work(context);
       }),
       unavailable,
-    ).andThen((result) => result);
+    )
+      .map((result) => {
+        // TypeORM resolves transaction() only after COMMIT, so these events
+        // cannot be emitted for writes that are later rolled back.
+        if (created) {
+          writeOperationalLog(this.logger, 'transaction.created', {
+            ...created,
+            providerEnvironment: 'UAT_SANDBOX',
+            newStatus: 'PENDING',
+            newDispatchStatus: 'NOT_SENT',
+          });
+          writeOperationalLog(this.logger, 'reservation.held', {
+            ...created,
+            newStatus: 'HELD',
+          });
+        }
+        return result;
+      })
+      .andThen((result) => result);
   }
   get(sessionId: string, id: string, now: Date) {
     return ResultAsync.fromPromise(
