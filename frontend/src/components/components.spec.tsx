@@ -28,6 +28,7 @@ function flow() {
     sync: jest.fn().mockResolvedValue(undefined),
     recover: jest.fn(),
     back: jest.fn(),
+    finishApprovedTransition: jest.fn(),
     invalidateSummary: jest.fn(),
   } as unknown as Flow;
 }
@@ -219,8 +220,16 @@ it.each([
     expect(screen.getByText(/gestionar la entrega/)).toBeInTheDocument();
     expect(screen.queryByText(/entrega lista/i)).not.toBeInTheDocument();
   }
-  fireEvent.click(screen.getByText(/Volver a los productos/));
-  expect(f.back).toHaveBeenCalled();
+  fireEvent.click(
+    screen.getByText(
+      status === 'APPROVED'
+        ? /Volver al inicio ahora/
+        : /Volver a los productos/,
+    ),
+  );
+  if (status === 'APPROVED')
+    expect(f.finishApprovedTransition).toHaveBeenCalled();
+  else expect(f.back).toHaveBeenCalled();
 });
 it('UNKNOWN no consulta automáticamente ni ofrece reenviar un cobro', async () => {
   jest.useFakeTimers();

@@ -572,3 +572,72 @@ it('un error del historial no bloquea catálogo, carrito ni una compra nueva', a
   expect(f.api.pay).not.toHaveBeenCalled();
   expect(f.api.sync).not.toHaveBeenCalled();
 });
+
+it('reabre el mismo borrador sin perder resumen ni crear otro intento', async () => {
+  const f = fixture();
+  await prepared(f);
+  const before = f.store.getState().summary;
+
+  f.flow.navigate('catalog');
+  await f.flow.begin(product.id, 1);
+
+  expect(f.store.getState().step).toBe('summary');
+  expect(f.store.getState().summary).toEqual(before);
+  expect(f.api.createCheckout).toHaveBeenCalledTimes(1);
+  expect(f.api.createAttempt).not.toHaveBeenCalled();
+  expect(f.api.pay).not.toHaveBeenCalled();
+  expect(f.api.sync).not.toHaveBeenCalled();
+});
+
+it('descarta solo el puntero de un borrador sin intento y conserva los activos', async () => {
+  const draft = fixture();
+  await draft.flow.initialize();
+  await draft.flow.begin(product.id, 1);
+  expect(draft.flow.discardLocalDraft()).toBe(true);
+  expect(draft.store.getState().checkout).toBeNull();
+  expect(loadProgress()).toEqual({ step: 'catalog' });
+
+  const active = fixture();
+  await prepared(active);
+  active.store.dispatch(actions.attempt(attempt));
+  expect(active.flow.discardLocalDraft()).toBe(false);
+  expect(active.store.getState().checkout?.id).toBe(checkout.id);
+  expect(active.store.getState().attempt?.id).toBe(attempt.id);
+  expect(active.api.pay).not.toHaveBeenCalled();
+  expect(active.api.sync).not.toHaveBeenCalled();
+});
+
+it('tras APPROVED refresca catálogo e historial, limpia estado local y vuelve al inicio sin reenviar', async () => {
+  const f = fixture();
+  await prepared(f);
+  f.store.dispatch(actions.cart({ productId: product.id, quantity: 1 }));
+  f.api.pay.mockResolvedValue({
+    ...attempt,
+    status: 'APPROVED',
+    dispatchStatus: 'SUBMITTED',
+  });
+
+  await f.flow.confirm();
+  expect(f.store.getState().approvedTransition).toBe(true);
+  await f.flow.completeApprovedTransition();
+
+  expect(f.api.products).toHaveBeenCalledTimes(2);
+  expect(f.api.purchases).toHaveBeenCalledTimes(1);
+  expect(f.store.getState()).toMatchObject({
+    checkout: null,
+    summary: null,
+    cart: null,
+    historyLoaded: true,
+    attempt: { status: 'APPROVED' },
+  });
+  expect(loadProgress()).toEqual({ step: 'result' });
+  expect(f.api.pay).toHaveBeenCalledTimes(1);
+  expect(f.api.sync).not.toHaveBeenCalled();
+
+  f.flow.finishApprovedTransition();
+  expect(f.store.getState().step).toBe('catalog');
+  expect(f.store.getState().attempt).toBeNull();
+  expect(f.store.getState().purchases).toHaveLength(1);
+  expect(loadProgress()).toEqual({ step: 'catalog' });
+  expect(f.api.pay).toHaveBeenCalledTimes(1);
+});

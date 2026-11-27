@@ -21,6 +21,7 @@ export interface State {
   historyLoaded: boolean;
   historyError: string;
   recoveryWarning: string;
+  approvedTransition: boolean;
   step: Step;
   busy: boolean;
   error: string;
@@ -38,6 +39,7 @@ const initialState: State = {
   historyLoaded: false,
   historyError: '',
   recoveryWarning: '',
+  approvedTransition: false,
   step: 'catalog',
   busy: false,
   error: '',
@@ -72,6 +74,9 @@ const slice = createSlice({
     },
     recoveryWarning: (s, a: PayloadAction<string>) => {
       s.recoveryWarning = a.payload;
+    },
+    approvedTransition: (s, a: PayloadAction<boolean>) => {
+      s.approvedTransition = a.payload;
     },
     step: (s, a: PayloadAction<Step>) => {
       s.step = a.payload;

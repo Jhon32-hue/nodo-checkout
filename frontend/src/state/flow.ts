@@ -28,6 +28,7 @@ export class Flow {
     buyer?: Buyer;
     delivery?: Delivery;
   } | null = null;
+  private completedApprovalId: string | null = null;
   constructor(
     private store: Store,
     private api: Api,
@@ -109,6 +110,19 @@ export class Flow {
     };
     this.store.dispatch(actions.checkout(publicCheckout));
   }
+  private publishAttempt(
+    value: Parameters<typeof actions.attempt>[0],
+    transition = true,
+  ) {
+    const previous = this.store.getState().attempt;
+    this.store.dispatch(actions.attempt(value));
+    if (
+      transition &&
+      value?.status === 'APPROVED' &&
+      previous?.status !== 'APPROVED'
+    )
+      this.store.dispatch(actions.approvedTransition(true));
+  }
   checkoutDraft(checkoutId: string) {
     return this.personalDraft?.checkoutId === checkoutId
       ? this.personalDraft
@@ -178,7 +192,7 @@ export class Flow {
         await this.api.session();
         try {
           await this.restore();
-          this.save('catalog');
+          if (!this.store.getState().approvedTransition) this.save('catalog');
         } catch (error) {
           if (!this.isInaccessible(error)) throw error;
           this.markProgressInaccessible();
@@ -197,7 +211,7 @@ export class Flow {
     if (id) {
       const t = await this.api.attempt(id);
       this.progress.transactionId = id;
-      this.store.dispatch(actions.attempt(t));
+      this.publishAttempt(t);
       this.store.dispatch(actions.summary(t.summary ?? null));
       this.save(
         t.status === 'PENDING' &&
@@ -237,20 +251,37 @@ export class Flow {
       if (!product || !quantityValid(quantity, product.available))
         throw new ApiError('INSUFFICIENT_STOCK');
       await this.api.session();
-      this.forgetCard();
-      const c =
+      const reusingDraft =
         s.checkout?.status === 'DRAFT' &&
         s.checkout.productId === productId &&
         s.checkout.quantity === quantity &&
-        !s.attempt
-          ? s.checkout
-          : await this.api.createCheckout(productId, quantity);
-      this.progress = { checkoutId: c.id, step: 'details' };
-      this.store.dispatch(actions.attempt(null));
+        !s.attempt;
+      const c = reusingDraft
+        ? s.checkout!
+        : await this.api.createCheckout(productId, quantity);
+      const nextStep = reusingDraft && s.summary ? 'summary' : 'details';
+      this.progress = { checkoutId: c.id, step: nextStep };
+      if (!reusingDraft) {
+        this.forgetCard();
+        this.store.dispatch(actions.attempt(null));
+        this.store.dispatch(actions.summary(null));
+      }
       this.publishCheckout(c);
-      this.store.dispatch(actions.summary(null));
-      this.save('details');
+      this.save(nextStep);
     });
+  }
+  discardLocalDraft() {
+    const state = this.store.getState();
+    if (state.checkout?.status !== 'DRAFT' || state.attempt) return false;
+    this.progress = { step: 'catalog' };
+    saveProgress(this.progress, this.storage);
+    this.personalDraft = null;
+    this.forgetCard();
+    this.store.dispatch(actions.checkout(null));
+    this.store.dispatch(actions.summary(null));
+    this.store.dispatch(actions.recoveryWarning(''));
+    this.store.dispatch(actions.step('catalog'));
+    return true;
   }
   async configuration() {
     const config = await this.api.config();
@@ -322,7 +353,7 @@ export class Flow {
         throw error;
       }
       this.progress.transactionId = t.id;
-      this.store.dispatch(actions.attempt(t));
+      this.publishAttempt(t, false);
       this.save('result');
       try {
         const paid = await this.api.pay(
@@ -331,24 +362,25 @@ export class Flow {
           this.config,
           this.consent,
         );
-        this.store.dispatch(actions.attempt(paid));
+        this.publishAttempt(paid);
         try {
           const details = await this.api.attempt(t.id);
-          this.store.dispatch(
-            actions.attempt({
+          this.publishAttempt(
+            {
               ...paid,
               reference: details.reference,
               createdAt: details.createdAt,
               finalizedAt: details.finalizedAt,
               summary: details.summary ?? paid.summary,
-            }),
+            },
+            false,
           );
         } catch {
           /* The confirmed result remains visible if the read-only detail fails. */
         }
       } catch (error) {
         try {
-          this.store.dispatch(actions.attempt(await this.api.attempt(t.id)));
+          this.publishAttempt(await this.api.attempt(t.id));
         } catch {
           /* Result screen preserves the known ID; never resend pay. */
         }
@@ -392,7 +424,7 @@ export class Flow {
         step: 'result',
       };
       this.publishCheckout(checkout);
-      this.store.dispatch(actions.attempt(attempt));
+      this.publishAttempt(attempt, false);
       this.store.dispatch(actions.summary(attempt.summary ?? null));
       this.save('result');
     });
@@ -402,10 +434,44 @@ export class Flow {
       const id = this.progress.transactionId;
       if (!id) return;
       const current = await this.api.attempt(id);
-      this.store.dispatch(actions.attempt(current));
+      this.publishAttempt(current);
       if (current.status === 'PENDING' && current.dispatchStatus !== 'NOT_SENT')
-        this.store.dispatch(actions.attempt(await this.api.sync(id)));
+        this.publishAttempt(await this.api.sync(id));
     });
+  }
+  async completeApprovedTransition() {
+    const state = this.store.getState();
+    const current = state.attempt;
+    if (
+      !state.approvedTransition ||
+      current?.status !== 'APPROVED' ||
+      this.completedApprovalId === current.id
+    )
+      return;
+    this.completedApprovalId = current.id;
+    this.progress = { step: 'result' };
+    saveProgress(this.progress, this.storage);
+    this.personalDraft = null;
+    this.forgetCard();
+    this.store.dispatch(actions.cart(null));
+    this.store.dispatch(actions.checkout(null));
+    this.store.dispatch(actions.summary(null));
+    this.store.dispatch(actions.recoveryWarning(''));
+    const [products, purchases] = await Promise.allSettled([
+      this.api.products(),
+      this.api.purchases(),
+    ]);
+    if (products.status === 'fulfilled')
+      this.store.dispatch(actions.products(products.value));
+    if (purchases.status === 'fulfilled')
+      this.store.dispatch(actions.purchases(purchases.value));
+  }
+  finishApprovedTransition() {
+    if (this.store.getState().attempt?.status !== 'APPROVED') return;
+    this.progress = { step: 'catalog' };
+    saveProgress(this.progress, this.storage);
+    this.store.dispatch(actions.reset());
+    this.store.dispatch(actions.approvedTransition(false));
   }
   edit() {
     this.navigate('details');
@@ -415,6 +481,10 @@ export class Flow {
     this.save('catalog');
   }
   async back() {
+    if (this.store.getState().attempt?.status === 'APPROVED') {
+      this.finishApprovedTransition();
+      return;
+    }
     await this.run(async () => {
       this.forgetCard();
       const t = this.store.getState().attempt;

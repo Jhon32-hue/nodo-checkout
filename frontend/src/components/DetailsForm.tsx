@@ -13,7 +13,14 @@ import PersonIcon from '@mui/icons-material/Person';
 import ButtonBase from '@mui/material/ButtonBase';
 import { formSchema, type FormValues } from '../validation';
 import { CardNumberField } from './CardNumberField';
-import type { PublicCheckout, Config, Buyer, Delivery } from '../types';
+import type {
+  PublicCheckout,
+  Config,
+  Buyer,
+  Delivery,
+  Card,
+  Consent,
+} from '../types';
 import type { Flow } from '../state/flow';
 import styles from '../App.module.css';
 
@@ -27,7 +34,12 @@ const phases: Array<{
   { id: 'buyer', label: 'Comprador', icon: PersonIcon },
   { id: 'delivery', label: 'Entrega', icon: LocalShippingIcon },
 ];
-type Draft = { buyer?: Buyer; delivery?: Delivery };
+export type DetailsDraft = {
+  buyer?: Buyer;
+  delivery?: Delivery;
+  card?: Card;
+  consent?: Consent;
+};
 const cardNames: Path<FormValues>[] = [
   'card.number',
   'card.holder',
@@ -50,8 +62,8 @@ export function DetailsForm({
   checkout: PublicCheckout;
   flow: Flow;
   busy: boolean;
-  draft?: Draft;
-  onDraftChange?: (draft: Draft) => void;
+  draft?: DetailsDraft;
+  onDraftChange?: (draft: DetailsDraft) => void;
 }) {
   const [phase, setPhase] = useState<Phase>('card');
   const [furthestPhase, setFurthestPhase] = useState(0);
@@ -64,7 +76,6 @@ export function DetailsForm({
     control,
     trigger,
     subscribe,
-    resetField,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -82,9 +93,15 @@ export function DetailsForm({
         postalCode: draft?.delivery?.postalCode ?? '',
         country: 'CO',
       },
-      card: { number: '', holder: '', month: '', year: '', cvc: '' },
-      policy: false,
-      personal: false,
+      card: draft?.card ?? {
+        number: '',
+        holder: '',
+        month: '',
+        year: '',
+        cvc: '',
+      },
+      policy: draft?.consent?.policy ?? false,
+      personal: draft?.consent?.personal ?? false,
     },
   });
   useEffect(() => {
@@ -106,11 +123,15 @@ export function DetailsForm({
       formState: { values: true },
       callback: ({ values, name }) => {
         if (name?.startsWith('card.')) flow.invalidateSummary();
-        if (name?.startsWith('buyer.') || name?.startsWith('delivery.'))
-          onDraftChange?.({
-            buyer: values.buyer as Buyer,
-            delivery: values.delivery as Delivery,
-          });
+        onDraftChange?.({
+          buyer: values.buyer as Buyer,
+          delivery: values.delivery as Delivery,
+          card: values.card as Card,
+          consent: {
+            policy: Boolean(values.policy),
+            personal: Boolean(values.personal),
+          },
+        });
       },
     });
   }, [subscribe, onDraftChange, flow]);
@@ -170,21 +191,16 @@ export function DetailsForm({
   const back = () => setPhase(phase === 'delivery' ? 'buyer' : 'card');
   const submit = handleSubmit(async (values) => {
     const { buyer, delivery, card, policy, personal } = values;
-    try {
-      await flow.details(
-        buyer,
-        {
-          ...delivery,
-          addressLine2: delivery.addressLine2 || undefined,
-          postalCode: delivery.postalCode || undefined,
-        },
-        card,
-        { policy, personal },
-      );
-    } finally {
-      for (const name of ['number', 'cvc', 'month', 'year', 'holder'] as const)
-        resetField(`card.${name}`);
-    }
+    await flow.details(
+      buyer,
+      {
+        ...delivery,
+        addressLine2: delivery.addressLine2 || undefined,
+        postalCode: delivery.postalCode || undefined,
+      },
+      card,
+      { policy, personal },
+    );
   });
   return (
     <form

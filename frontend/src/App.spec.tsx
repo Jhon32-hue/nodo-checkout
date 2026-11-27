@@ -20,6 +20,9 @@ it('conecta catálogo, compra, resumen y resultado con Redux sin pagar por monta
     canConfirm: jest.fn().mockReturnValue(true),
     configuration: jest.fn().mockResolvedValue(config),
     sync: jest.fn(),
+    discardLocalDraft: jest.fn().mockReturnValue(false),
+    completeApprovedTransition: jest.fn(),
+    finishApprovedTransition: jest.fn(),
     navigate: jest.fn(),
     navigation: jest
       .fn()
@@ -57,6 +60,7 @@ it('conecta catálogo, compra, resumen y resultado con Redux sin pagar por monta
   expect(await screen.findByText('Tarjeta de crédito')).toBeInTheDocument();
   fireEvent.click(screen.getByLabelText('Cerrar'));
   expect(f.close).toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
   await act(async () => {
     store.dispatch(actions.summary(summary));
     store.dispatch(actions.step('summary'));
@@ -74,12 +78,14 @@ it('conecta catálogo, compra, resumen y resultado con Redux sin pagar por monta
   await act(async () => {
     store.dispatch(actions.error('Error sanitizado'));
     store.dispatch(actions.step('catalog'));
-    store.dispatch(actions.attempt(attempt));
+    store.dispatch(
+      actions.attempt({ ...attempt, dispatchStatus: 'IN_FLIGHT' }),
+    );
   });
-  fireEvent.click(screen.getByText('Ver estado'));
+  fireEvent.click(screen.getByText('Consultar estado'));
   fireEvent.click(screen.getByText('Recuperar estado de mi compra'));
-  expect(f.recover).toHaveBeenCalledTimes(2);
-  expect(screen.getByText(/Tienes un pago pendiente/)).toBeInTheDocument();
+  expect(f.recover).toHaveBeenCalledTimes(3);
+  expect(screen.getByText(/Estamos enviando tu pago/)).toBeInTheDocument();
   await act(async () => {
     store.dispatch(actions.attempt(null));
     store.dispatch(actions.error(''));
@@ -208,7 +214,9 @@ it('muestra navegación móvil accesible y conserva el aviso de compra sin abrir
     store.dispatch(actions.checkout(checkout));
   });
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-  expect(screen.getByText('Tienes una compra pendiente')).toBeInTheDocument();
+  expect(
+    screen.getByText('Tienes una compra sin terminar.'),
+  ).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Abrir menú' }));
   expect(screen.getByRole('button', { name: 'Cerrar menú' })).toHaveAttribute(
     'aria-expanded',

@@ -360,6 +360,18 @@
   background: #fde047;
 }
 
+.resumeActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.resumeActions button + button {
+  background: transparent;
+  border: 1px solid #18181b;
+}
+
 .grid,
 .skeletonGrid {
   display: grid;

@@ -142,6 +142,12 @@ export function Result({
       {attempt.deliveryId && (
         <p>Registramos la información necesaria para gestionar la entrega.</p>
       )}
+      {attempt.status === 'APPROVED' && (
+        <p className={styles.resultTransition} role="status">
+          Actualizamos el catálogo y tus compras. Volverás al inicio en unos
+          segundos.
+        </p>
+      )}
       {stopped && attempt.status === 'PENDING' && (
         <p role="status">
           La consulta automática terminó. Puedes consultar manualmente sin
@@ -162,9 +168,16 @@ export function Result({
       <button
         className={styles.textButton}
         disabled={busy}
-        onClick={() => void flow.back()}
+        onClick={() =>
+          attempt.status === 'APPROVED'
+            ? flow.finishApprovedTransition()
+            : void flow.back()
+        }
       >
-        Volver a los productos <span aria-hidden="true">↗</span>
+        {attempt.status === 'APPROVED'
+          ? 'Volver al inicio ahora'
+          : 'Volver a los productos'}{' '}
+        <span aria-hidden="true">↗</span>
       </button>
     </div>
   );
