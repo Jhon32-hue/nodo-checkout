@@ -15,6 +15,13 @@ La aplicación y Swagger están publicados en AWS con HTTPS, usando únicamente 
 - [OpenAPI versionado](docs/openapi.json) y [contrato HTTP](docs/api-contract.md).
 - [Ejecución local](#ejecución-local) y [pruebas/cobertura](#pruebas-y-cobertura).
 
+**Comprobar la integración sin cobrar:** en Swagger, ejecuta
+`POST /api/v1/checkout-sessions` y luego `GET /api/v1/payments/config` en el mismo
+navegador. Una respuesta `200` de configuración confirma que la API obtuvo la
+configuración pública y la clave de cifrado del proveedor Sandbox. Para verificar
+un pago completo, usa la aplicación con una tarjeta ficticia indicada abajo;
+Swagger no realiza la tokenización de la SPA.
+
 ## Probar una compra Sandbox
 
 Usa exclusivamente datos ficticios y las siguientes tarjetas de prueba admitidas
