@@ -33,6 +33,7 @@ describe('Recoverable checkout (isolated PostgreSQL)', () => {
   const publicConfig: PublicPaymentConfig = {
     environment: 'UAT_SANDBOX',
     publicKey: 'pub_test_fixture',
+    tokenizationPublicKey: 'fixture-rsa-public-key',
     tokenizationUrl: 'https://api-sandbox.co.uat.wompi.dev/v1/tokens/cards',
     installments: 1,
     acceptance: {
@@ -620,7 +621,44 @@ describe('Recoverable checkout (isolated PostgreSQL)', () => {
     expect(
       await source.query('SELECT * FROM transactions ORDER BY id'),
     ).toEqual(rowsBefore);
+    const sendsBeforeHistory = send.mock.calls.length;
+    const history = await request(app.getHttpServer())
+      .get('/api/v1/transactions')
+      .set('Cookie', auth.cookie)
+      .expect(200)
+      .expect('Cache-Control', 'no-store');
+    const historyBody = history.body as {
+      data: { items: Array<{ reference: string; createdAt: string }> };
+    };
+    expect(historyBody).toEqual({
+      data: {
+        items: [
+          expect.objectContaining({
+            id: attempt.id,
+            checkoutId: id,
+            productName: catalogProducts[0].name,
+            quantity: 2,
+            totalCents: 26130000,
+            currency: 'COP',
+            status: 'PENDING',
+            dispatchStatus: 'NOT_SENT',
+            deliveryId: null,
+          }),
+        ],
+      },
+    });
+    expect(historyBody.data.items[0].reference).toMatch(/^pc_[0-9a-f]{32}$/);
+    expect(historyBody.data.items[0].createdAt).toMatch(/Z$/);
+    expect(send).toHaveBeenCalledTimes(sendsBeforeHistory);
+    expect(
+      await source.query('SELECT * FROM transactions ORDER BY id'),
+    ).toEqual(rowsBefore);
     const other = await login();
+    await request(app.getHttpServer())
+      .get('/api/v1/transactions')
+      .set('Cookie', other.cookie)
+      .expect(200)
+      .expect({ data: { items: [] } });
     await request(app.getHttpServer())
       .post('/api/v1/transactions')
       .set('Origin', origin)
@@ -641,6 +679,7 @@ describe('Recoverable checkout (isolated PostgreSQL)', () => {
     await request(app.getHttpServer())
       .get(`/api/v1/transactions/${attempt.id}`)
       .expect(401);
+    await request(app.getHttpServer()).get('/api/v1/transactions').expect(401);
     await request(app.getHttpServer())
       .get('/api/v1/transactions/invalid')
       .set('Cookie', auth.cookie)
@@ -683,6 +722,15 @@ describe('Recoverable checkout (isolated PostgreSQL)', () => {
       document.paths['/api/v1/transactions'].post?.responses['201'],
     ).toBeDefined();
     expect(
+      document.paths['/api/v1/transactions'].get?.responses['200'],
+    ).toBeDefined();
+    expect(
+      document.paths['/api/v1/transactions'].get?.responses['400'],
+    ).toBeUndefined();
+    expect(
+      document.paths['/api/v1/transactions'].get?.responses['404'],
+    ).toBeUndefined();
+    expect(
       document.paths['/api/v1/transactions/{id}'].get?.responses['200'],
     ).toBeDefined();
   });
@@ -698,6 +746,18 @@ describe('Recoverable checkout (isolated PostgreSQL)', () => {
       .expect(200)
       .expect('Cache-Control', 'no-store');
     expect(configuration.body).toEqual({ data: publicConfig });
+    const openApi = (await request(app.getHttpServer()).get('/docs-json'))
+      .body as OpenAPIObject;
+    const configSchema = openApi.components?.schemas?.PublicConfigDto;
+    if (!configSchema || '$ref' in configSchema)
+      throw new Error('Expected inline PublicConfigDto schema');
+    expect(configSchema.required).toEqual(
+      expect.arrayContaining([
+        'publicKey',
+        'tokenizationPublicKey',
+        'tokenizationUrl',
+      ]),
+    );
     configUnavailable = true;
     try {
       const failed = await request(app.getHttpServer())

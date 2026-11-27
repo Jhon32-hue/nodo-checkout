@@ -26,6 +26,7 @@ import { Type } from 'class-transformer';
 import {
   CreateTransaction,
   GetTransaction,
+  ListTransactions,
 } from '../../application/transaction-cases';
 import { CheckoutGuard, failure } from './session-security';
 import type { CheckoutRequest } from './session-security';
@@ -98,6 +99,33 @@ class AttemptDetailsDto extends AttemptDto {
 class DetailsResponseDto {
   @ApiProperty({ type: AttemptDetailsDto }) data!: AttemptDetailsDto;
 }
+class PurchaseHistoryItemDto {
+  @ApiProperty({ format: 'uuid' }) id!: string;
+  @ApiProperty({ format: 'uuid' }) checkoutId!: string;
+  @ApiProperty({ maxLength: 120 }) productName!: string;
+  @ApiProperty({ type: 'integer', minimum: 1, maximum: 99 }) quantity!: number;
+  @ApiProperty({ type: 'integer', minimum: 1 }) totalCents!: number;
+  @ApiProperty({ enum: ['COP'] }) currency!: string;
+  @ApiProperty({ maxLength: 64 }) reference!: string;
+  @ApiProperty({
+    enum: ['PENDING', 'APPROVED', 'DECLINED', 'VOIDED', 'ERROR', 'EXPIRED'],
+  })
+  status!: string;
+  @ApiProperty({
+    enum: ['NOT_SENT', 'IN_FLIGHT', 'SUBMITTED', 'UNKNOWN', 'NOT_CREATED'],
+  })
+  dispatchStatus!: string;
+  @ApiProperty({ format: 'date-time' }) createdAt!: string;
+  @ApiProperty({ type: String, nullable: true, format: 'uuid' }) deliveryId!:
+    string | null;
+}
+class PurchaseHistoryDataDto {
+  @ApiProperty({ type: [PurchaseHistoryItemDto] })
+  items!: PurchaseHistoryItemDto[];
+}
+class PurchaseHistoryResponseDto {
+  @ApiProperty({ type: PurchaseHistoryDataDto }) data!: PurchaseHistoryDataDto;
+}
 function respond<T>(result: Result<T, CheckoutError>) {
   return result.match(
     (data) => ({ data }),
@@ -107,13 +135,7 @@ function respond<T>(result: Result<T, CheckoutError>) {
   );
 }
 @ApiTags('transactions')
-@ApiResponse({ status: 400, description: 'Invalid UUID, fields or types.' })
 @ApiResponse({ status: 401, description: 'Missing or expired session.' })
-@ApiResponse({
-  status: 404,
-  description:
-    'Missing resource or foreign checkout/attempt; inactive product on creation.',
-})
 @ApiResponse({ status: 503, description: 'Sanitized persistence failure.' })
 @UseGuards(CheckoutGuard)
 @UseFilters(CheckoutInputFilter)
@@ -122,7 +144,22 @@ export class TransactionsController {
   constructor(
     private readonly createCase: CreateTransaction,
     private readonly getCase: GetTransaction,
+    private readonly listCase: ListTransactions,
   ) {}
+  @Get()
+  @ApiResponse({
+    status: 200,
+    type: PurchaseHistoryResponseDto,
+    description:
+      'Payment attempts owned by the current guest session, newest first. Read-only and never contacts the provider.',
+  })
+  async list(@Req() req: CheckoutRequest) {
+    return respond(
+      (await this.listCase.execute(req.checkoutSession.id)).map((items) => ({
+        items,
+      })),
+    );
+  }
   @Post()
   @ApiHeader({
     name: 'Idempotency-Key',
@@ -137,7 +174,12 @@ export class TransactionsController {
     description:
       'PENDING with HELD reservation, or same attempt on identical replay.',
   })
+  @ApiResponse({ status: 400, description: 'Invalid fields or types.' })
   @ApiResponse({ status: 403, description: 'Invalid Origin or CSRF.' })
+  @ApiResponse({
+    status: 404,
+    description: 'Foreign checkout or inactive/missing product.',
+  })
   @ApiResponse({
     status: 409,
     description:
@@ -163,11 +205,16 @@ export class TransactionsController {
     );
   }
   @Get(':id')
+  @ApiResponse({ status: 400, description: 'Invalid transaction UUID.' })
   @ApiResponse({
     status: 200,
     type: DetailsResponseDto,
     description:
       'Historical amounts, reference, dates and reservation state; never writes or contacts provider.',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Missing or foreign transaction.',
   })
   async get(
     @Req() req: CheckoutRequest,

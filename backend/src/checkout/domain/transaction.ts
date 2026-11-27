@@ -16,6 +16,19 @@ export interface AttemptDetails extends AttemptView {
   reservationStatus: string;
   reservationExpired: boolean;
 }
+export interface PurchaseHistoryItem {
+  id: string;
+  checkoutId: string;
+  productName: string;
+  quantity: number;
+  totalCents: number;
+  currency: 'COP';
+  reference: string;
+  status: string;
+  dispatchStatus: string;
+  createdAt: string;
+  deliveryId: string | null;
+}
 export function canonicalRequest(
   checkoutId: string,
   s: AcceptedSummary,

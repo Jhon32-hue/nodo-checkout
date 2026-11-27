@@ -93,3 +93,9 @@ export class GetTransaction {
     return this.store.get(sessionId, id, new Date());
   }
 }
+export class ListTransactions {
+  constructor(private readonly store: TransactionStore) {}
+  execute(sessionId: string) {
+    return this.store.list(sessionId);
+  }
+}

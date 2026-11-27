@@ -5,7 +5,11 @@ import { err, ok, ResultAsync } from 'neverthrow';
 import type { Result } from 'neverthrow';
 import type { CheckoutError } from '../../domain/checkout';
 import { calculateSummary } from '../../domain/checkout';
-import type { AttemptView, AttemptDetails } from '../../domain/transaction';
+import type {
+  AttemptView,
+  AttemptDetails,
+  PurchaseHistoryItem,
+} from '../../domain/transaction';
 import type {
   TransactionStore,
   AttemptContext,
@@ -218,5 +222,72 @@ export class TypeOrmTransactionStore implements TransactionStore {
       }),
       unavailable,
     ).andThen((result) => result);
+  }
+  list(sessionId: string) {
+    return ResultAsync.fromPromise(
+      this.db.transaction('REPEATABLE READ', async (manager) => {
+        const rows = await manager
+          .createQueryBuilder(TransactionOrmEntity, 't')
+          .innerJoin('t.checkout', 'c')
+          .leftJoin(DeliveryOrmEntity, 'd', 'd.transaction_id = t.id')
+          .select('t.id', 'id')
+          .addSelect('t.checkout_id', 'checkoutId')
+          .addSelect('t.product_name', 'productName')
+          .addSelect('t.quantity', 'quantity')
+          .addSelect('t.unit_price_cents', 'unitPriceCents')
+          .addSelect('t.base_fee_cents', 'baseFeeCents')
+          .addSelect('t.delivery_fee_cents', 'deliveryFeeCents')
+          .addSelect('t.currency', 'currency')
+          .addSelect('t.reference', 'reference')
+          .addSelect('t.status', 'status')
+          .addSelect('t.dispatch_status', 'dispatchStatus')
+          .addSelect('t.created_at', 'createdAt')
+          .addSelect('d.id', 'deliveryId')
+          .where('c.session_id = :sessionId', { sessionId })
+          .orderBy('t.created_at', 'DESC')
+          .addOrderBy('t.id', 'DESC')
+          .getRawMany<{
+            id: string;
+            checkoutId: string;
+            productName: string;
+            quantity: number;
+            unitPriceCents: number;
+            baseFeeCents: number;
+            deliveryFeeCents: number;
+            currency: string;
+            reference: string;
+            status: string;
+            dispatchStatus: string;
+            createdAt: Date;
+            deliveryId: string | null;
+          }>();
+        const items: PurchaseHistoryItem[] = [];
+        for (const row of rows) {
+          const summary = calculateSummary({
+            quantity: Number(row.quantity),
+            unitPriceCents: Number(row.unitPriceCents),
+            baseFeeCents: Number(row.baseFeeCents),
+            deliveryFeeCents: Number(row.deliveryFeeCents),
+            currency: row.currency,
+          });
+          if (summary.isErr()) throw new Error('Invalid historical amount');
+          items.push({
+            id: row.id,
+            checkoutId: row.checkoutId,
+            productName: row.productName,
+            quantity: Number(row.quantity),
+            totalCents: summary.value.totalCents,
+            currency: 'COP',
+            reference: row.reference,
+            status: row.status,
+            dispatchStatus: row.dispatchStatus,
+            createdAt: new Date(row.createdAt).toISOString(),
+            deliveryId: row.deliveryId,
+          });
+        }
+        return items;
+      }),
+      unavailable,
+    );
   }
 }

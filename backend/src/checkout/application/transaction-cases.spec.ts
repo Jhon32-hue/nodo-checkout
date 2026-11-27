@@ -6,7 +6,11 @@ import {
   matchesSummary,
   canExpire,
 } from '../domain/transaction';
-import { CreateTransaction, GetTransaction } from './transaction-cases';
+import {
+  CreateTransaction,
+  GetTransaction,
+  ListTransactions,
+} from './transaction-cases';
 import { calculateDraftSummary } from '../domain/checkout';
 const accepted = {
   quantity: 2,
@@ -79,17 +83,36 @@ function fixture() {
     reservationStatus: 'HELD',
   };
   const get = jest.fn(() => okAsync(details));
+  const list = jest.fn(() =>
+    okAsync([
+      {
+        id: details.id,
+        checkoutId: details.checkoutId,
+        productName: 'Product',
+        quantity: details.summary.quantity,
+        totalCents: details.summary.totalCents,
+        currency: 'COP' as const,
+        reference: details.reference,
+        status: details.status,
+        dispatchStatus: details.dispatchStatus,
+        createdAt: details.createdAt,
+        deliveryId: details.deliveryId,
+      },
+    ]),
+  );
   const store: TransactionStore = {
     run: (_session, _id, work) =>
       ResultAsync.fromPromise(work(ctx), () => ({
         kind: 'PERSISTENCE_UNAVAILABLE' as const,
       })).andThen((result) => result),
     get,
+    list,
   };
   const identity = { hash: jest.fn((s: string) => s) };
   return {
     ctx,
     get,
+    list,
     store,
     identity,
     create: new CreateTransaction(store, identity, () => now),
@@ -261,6 +284,9 @@ describe('transaction use cases and rules without SQL/Nest', () => {
     const read = await new GetTransaction(f.store).execute('owner', 'attempt');
     expect(read.isOk()).toBe(true);
     expect(f.get).toHaveBeenCalledWith('owner', 'attempt', expect.any(Date));
+    const history = await new ListTransactions(f.store).execute('owner');
+    expect(history.isOk() && history.value).toHaveLength(1);
+    expect(f.list).toHaveBeenCalledWith('owner');
   });
   it('canonicalizes property order and checkout UUID case, and protects expiry boundaries', () => {
     expect(canonicalRequest('ABCD', accepted)).toBe(

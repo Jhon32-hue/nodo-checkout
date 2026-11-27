@@ -15,6 +15,7 @@ import { TypeOrmTransactionStore } from './infrastructure/typeorm/transaction.st
 import {
   CreateTransaction,
   GetTransaction,
+  ListTransactions,
 } from './application/transaction-cases';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -102,6 +103,12 @@ import {
       provide: GetTransaction,
       inject: [TypeOrmTransactionStore],
       useFactory: (store: TypeOrmTransactionStore) => new GetTransaction(store),
+    },
+    {
+      provide: ListTransactions,
+      inject: [TypeOrmTransactionStore],
+      useFactory: (store: TypeOrmTransactionStore) =>
+        new ListTransactions(store),
     },
     TypeOrmSessionStore,
     TypeOrmCheckoutStore,

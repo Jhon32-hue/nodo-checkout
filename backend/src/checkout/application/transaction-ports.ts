@@ -5,7 +5,11 @@ import type {
   CheckoutError,
   Summary,
 } from '../domain/checkout';
-import type { AttemptView, AttemptDetails } from '../domain/transaction';
+import type {
+  AttemptView,
+  AttemptDetails,
+  PurchaseHistoryItem,
+} from '../domain/transaction';
 export interface LockedCheckout {
   id: string;
   productId: string;
@@ -72,6 +76,7 @@ export interface TransactionStore {
     id: string,
     now: Date,
   ): ResultAsync<AttemptDetails, CheckoutError>;
+  list(sessionId: string): ResultAsync<PurchaseHistoryItem[], CheckoutError>;
 }
 export interface TransactionIdentity {
   hash(canonical: string): string;
