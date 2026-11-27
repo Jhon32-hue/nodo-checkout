@@ -261,9 +261,11 @@ it.each([
   );
   expect(screen.getByText('Referencia de compra')).toBeInTheDocument();
   expect(screen.getByText(attempt.reference!)).toBeInTheDocument();
-  fireEvent.click(screen.getByText('Identificadores técnicos'));
-  expect(screen.getByText(attempt.checkoutId)).toBeInTheDocument();
-  expect(screen.getByText(attempt.id)).toBeInTheDocument();
+  expect(
+    screen.queryByText('Identificadores técnicos'),
+  ).not.toBeInTheDocument();
+  expect(screen.queryByText(attempt.checkoutId)).not.toBeInTheDocument();
+  expect(screen.queryByText(attempt.id)).not.toBeInTheDocument();
   if (status === 'APPROVED') {
     expect(screen.getByText(/gestionar la entrega/)).toBeInTheDocument();
     expect(screen.queryByText(/entrega lista/i)).not.toBeInTheDocument();
@@ -293,8 +295,8 @@ it('UNKNOWN no consulta automáticamente ni ofrece reenviar un cobro', async () 
   expect(f.sync).not.toHaveBeenCalled();
   expect(screen.getByText('Resultado incierto')).toBeInTheDocument();
   expect(screen.queryByText(/volver a pagar/i)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByText('Consultar estado'));
-  expect(f.sync).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText('Consultar estado')).not.toBeInTheDocument();
+  expect(f.sync).not.toHaveBeenCalled();
   jest.useRealTimers();
 });
 it('limita polling, cancela temporizadores al salir y permite recuperación NOT_SENT', async () => {
@@ -477,13 +479,15 @@ it('ofrece tarjetas Sandbox solo por elección y las conserva fuera de Redux y s
     </Provider>,
   );
 
+  const disclosure = await screen.findByRole('button', {
+    name: 'Elegir escenario de prueba',
+  });
+  expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByText('Compra aprobada')).not.toBeInTheDocument();
+  fireEvent.click(disclosure);
+  expect(disclosure).toHaveAttribute('aria-expanded', 'true');
   expect(
-    await screen.findByRole('heading', { name: 'Tarjetas de prueba' }),
-  ).toBeInTheDocument();
-  expect(
-    screen.getByText(
-      'Este entorno acepta únicamente tarjetas ficticias de prueba.',
-    ),
+    screen.getByText('Selecciona el resultado que quieres comprobar.'),
   ).toBeInTheDocument();
   expect(screen.getByLabelText('Número de tarjeta')).toHaveValue('');
 
@@ -522,6 +526,9 @@ it('ofrece tarjetas Sandbox solo por elección y las conserva fuera de Redux y s
   expect({ ...window.localStorage }).toEqual(localBefore);
   expect({ ...window.sessionStorage }).toEqual(sessionBefore);
   expect(window.location.href).toBe(locationBefore);
+  fireEvent.click(screen.getByRole('button', { name: 'Cerrar ayuda' }));
+  expect(screen.queryByText('Compra aprobada')).not.toBeInTheDocument();
+  expect(disclosure).toHaveAttribute('aria-expanded', 'false');
   localWrite.mockRestore();
   consoleWrite.mockRestore();
 });
@@ -534,7 +541,7 @@ it('oculta la ayuda de tarjetas cuando la configuración no es Sandbox', async (
   render(<DetailsForm checkout={checkout} flow={f} busy={false} />);
   await waitFor(() => expect(f.configuration).toHaveBeenCalledTimes(1));
   expect(
-    screen.queryByRole('heading', { name: 'Tarjetas de prueba' }),
+    screen.queryByRole('button', { name: 'Elegir escenario de prueba' }),
   ).not.toBeInTheDocument();
   expect(screen.getByLabelText('Número de tarjeta')).toHaveValue('');
 });

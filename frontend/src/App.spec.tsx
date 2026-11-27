@@ -126,6 +126,7 @@ it('conecta catálogo, compra, resumen y resultado con Redux sin pagar por monta
   expect(await screen.findByText('Tarjeta de crédito')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: /^Producto,/ }));
   expect(screen.getByText('PRODUCTO DE ESTA COMPRA')).toBeInTheDocument();
+  expect(screen.queryByText(product.description)).not.toBeInTheDocument();
   expect(screen.getByRole('dialog')).toBeInTheDocument();
   expect(f.navigate).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Volver al checkout' }));

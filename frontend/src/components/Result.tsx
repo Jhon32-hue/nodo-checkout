@@ -129,23 +129,6 @@ export function Result({
           {attempt.reference ?? 'Disponible al consultar el detalle'}
         </strong>
       </div>
-      <details className={styles.resultTechnical}>
-        <summary>Identificadores técnicos</summary>
-        <div>
-          <span>Compra</span>
-          <code>{attempt.checkoutId}</code>
-        </div>
-        <div>
-          <span>Intento de pago</span>
-          <code>{attempt.id}</code>
-        </div>
-        {attempt.deliveryId && (
-          <div>
-            <span>Registro de entrega</span>
-            <code>{attempt.deliveryId}</code>
-          </div>
-        )}
-      </details>
       {attempt.deliveryId && (
         <p>Registramos la información necesaria para gestionar la entrega.</p>
       )}
@@ -157,14 +140,9 @@ export function Result({
       )}
       {stopped && attempt.status === 'PENDING' && (
         <p role="status">
-          La consulta automática terminó. Puedes consultar manualmente sin
-          volver a cobrar.
+          La consulta automática terminó. Puedes revisar el estado desde el
+          detalle de la compra.
         </p>
-      )}
-      {attempt.status === 'PENDING' && (
-        <button disabled={busy} onClick={() => void flow.sync()}>
-          Consultar estado
-        </button>
       )}
       {attempt.status === 'PENDING' &&
         attempt.dispatchStatus === 'NOT_SENT' && (

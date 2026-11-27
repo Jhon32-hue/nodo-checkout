@@ -3,12 +3,14 @@ import { useForm, Controller, type Path } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
 import Checkbox from '@mui/material/Checkbox';
 import CircularProgress from '@mui/material/CircularProgress';
 import CreditCardIcon from '@mui/icons-material/CreditCard';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import CloseIcon from '@mui/icons-material/Close';
 import { formSchema, type FormValues } from '../validation';
 import { CardNumberField } from './CardNumberField';
 import type {
@@ -72,6 +74,7 @@ export function DetailsForm({
   const [optional, setOptional] = useState(false);
   const [config, setConfig] = useState<Config | null>(null);
   const [configError, setConfigError] = useState(false);
+  const [sandboxHelpOpen, setSandboxHelpOpen] = useState(false);
   const [cardSelectionAnnouncement, setCardSelectionAnnouncement] =
     useState('');
   const {
@@ -258,55 +261,78 @@ export function DetailsForm({
               render={({ field: cardNumber, fieldState }) => (
                 <Fragment>
                   {isSandbox(config?.environment) && (
-                    <aside
-                      className={styles.sandboxCardHelp}
-                      aria-labelledby="sandbox-card-help-title"
-                    >
-                      <div>
-                        <h4 id="sandbox-card-help-title">Tarjetas de prueba</h4>
-                        <p>
-                          Este entorno acepta únicamente tarjetas ficticias de
-                          prueba.
-                        </p>
-                      </div>
-                      <div className={styles.sandboxCardOptions}>
-                        {sandboxCards.map((option) => (
-                          <div key={option.number}>
-                            <span>{option.label}</span>
-                            <code>
-                              {option.number.replace(/(\d{4})(?=\d)/g, '$1 ')}
-                            </code>
-                            <Button
+                    <div className={styles.sandboxCardDisclosure}>
+                      <Button
+                        type="button"
+                        size="small"
+                        variant="outlined"
+                        aria-expanded={sandboxHelpOpen}
+                        aria-controls="sandbox-card-options"
+                        onClick={() => setSandboxHelpOpen((open) => !open)}
+                      >
+                        Elegir escenario de prueba
+                      </Button>
+                      {sandboxHelpOpen && (
+                        <aside
+                          id="sandbox-card-options"
+                          className={styles.sandboxCardHelp}
+                          aria-label="Escenarios de pago de prueba"
+                        >
+                          <div className={styles.sandboxCardHelpHeader}>
+                            <p>
+                              Selecciona el resultado que quieres comprobar.
+                            </p>
+                            <IconButton
                               type="button"
                               size="small"
-                              variant="text"
-                              onClick={() => {
-                                cardNumber.onChange(option.number);
-                                void trigger('card.number');
-                                clearErrors('card.holder');
-                                setCardSelectionAnnouncement(
-                                  'Tarjeta de prueba seleccionada.',
-                                );
-                                document.getElementById('card.holder')?.focus();
-                              }}
+                              aria-label="Cerrar ayuda"
+                              onClick={() => setSandboxHelpOpen(false)}
                             >
-                              {option.action}
-                            </Button>
+                              <CloseIcon fontSize="small" />
+                            </IconButton>
                           </div>
-                        ))}
-                      </div>
-                      <p>
-                        Usa una fecha futura y un CVC de tres dígitos, por
-                        ejemplo 123.
-                      </p>
-                      <span
-                        className={styles.srOnly}
-                        role="status"
-                        aria-live="polite"
-                      >
-                        {cardSelectionAnnouncement}
-                      </span>
-                    </aside>
+                          <div className={styles.sandboxCardOptions}>
+                            {sandboxCards.map((option) => (
+                              <div key={option.number}>
+                                <span>{option.label}</span>
+                                <code>
+                                  {option.number.replace(
+                                    /(\d{4})(?=\d)/g,
+                                    '$1 ',
+                                  )}
+                                </code>
+                                <Button
+                                  type="button"
+                                  size="small"
+                                  variant="text"
+                                  onClick={() => {
+                                    cardNumber.onChange(option.number);
+                                    void trigger('card.number');
+                                    clearErrors('card.holder');
+                                    setCardSelectionAnnouncement(
+                                      'Tarjeta de prueba seleccionada.',
+                                    );
+                                    document
+                                      .getElementById('card.holder')
+                                      ?.focus();
+                                  }}
+                                >
+                                  {option.action}
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                          <p>Fecha futura y CVC de tres dígitos, como 123.</p>
+                          <span
+                            className={styles.srOnly}
+                            role="status"
+                            aria-live="polite"
+                          >
+                            {cardSelectionAnnouncement}
+                          </span>
+                        </aside>
+                      )}
+                    </div>
                   )}
                   <CardNumberField
                     value={cardNumber.value}
