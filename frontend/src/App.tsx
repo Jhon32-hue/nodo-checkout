@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import Button from '@mui/material/Button';
 import Snackbar from '@mui/material/Snackbar';
@@ -40,6 +40,8 @@ export function App({ flow }: { flow: Flow }) {
   const dispatch = useDispatch();
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [search, setSearch] = useState('');
+  const productsSectionRef = useRef<HTMLElement>(null);
+  const [searchAnnouncement, setSearchAnnouncement] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [checkoutDialogOpen, setCheckoutDialogOpen] = useState(false);
@@ -137,6 +139,7 @@ export function App({ flow }: { flow: Flow }) {
       actions.cart(addCartItem(cart, { productId, quantity }, s.products)),
     );
     dispatch(actions.notice('Producto agregado al carrito.'));
+    dispatch(actions.cartOpen(true));
   };
   const goTo = (section: 'inicio' | 'categorias' | 'catalogo') => {
     dispatch(actions.selectedProduct(null));
@@ -149,6 +152,20 @@ export function App({ flow }: { flow: Flow }) {
   const selectCategory = (selectedCategory: Category) => {
     setCategory(selectedCategory);
     goTo('catalogo');
+  };
+  const submitSearch = () => {
+    setHistoryOpen(false);
+    dispatch(actions.selectedProduct(null));
+    setSearchAnnouncement(`${visibleProducts.length} productos encontrados.`);
+    window.requestAnimationFrame(() =>
+      productsSectionRef.current?.scrollIntoView({
+        behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)')
+          .matches
+          ? 'instant'
+          : 'smooth',
+        block: 'start',
+      }),
+    );
   };
   return (
     <>
@@ -200,8 +217,16 @@ export function App({ flow }: { flow: Flow }) {
         >
           {menuOpen ? <CloseIcon /> : <MenuIcon />}
         </button>
-        <label className={shopStyles.search}>
-          <SearchIcon fontSize="small" aria-hidden="true" />
+        <form
+          className={shopStyles.search}
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitSearch();
+          }}
+        >
+          <button type="submit" aria-label="Buscar">
+            <SearchIcon fontSize="small" aria-hidden="true" />
+          </button>
           <span className={shopStyles.srOnly}>Buscar productos</span>
           <input
             type="search"
@@ -210,10 +235,12 @@ export function App({ flow }: { flow: Flow }) {
             aria-label="Buscar productos"
             onChange={(event) => {
               setSearch(event.target.value);
-              if (event.target.value.trim()) goTo('catalogo');
             }}
           />
-        </label>
+        </form>
+        <span className={shopStyles.srOnly} aria-live="polite">
+          {searchAnnouncement}
+        </span>
         <Button
           variant="outlined"
           startIcon={<ShoppingCartIcon />}
@@ -349,7 +376,11 @@ export function App({ flow }: { flow: Flow }) {
                 />
               </>
             ) : (
-              <section id="catalogo" className={shopStyles.catalog}>
+              <section
+                ref={productsSectionRef}
+                id="catalogo"
+                className={shopStyles.catalog}
+              >
                 <div className={shopStyles.sectionHeading}>
                   <div>
                     <span className={shopStyles.kicker}>SELECCIÓN NODO</span>

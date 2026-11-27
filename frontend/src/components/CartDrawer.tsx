@@ -60,6 +60,18 @@ export function CartDrawer({
       ref={ref}
       className={styles.cartDrawer}
       aria-labelledby="cart-title"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          const rect = event.currentTarget.getBoundingClientRect();
+          if (
+            event.clientX < rect.left ||
+            event.clientX > rect.right ||
+            event.clientY < rect.top ||
+            event.clientY > rect.bottom
+          )
+            onClose();
+        }
+      }}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -82,6 +94,9 @@ export function CartDrawer({
           <CloseIcon />
         </IconButton>
       </div>
+      <p aria-live="polite" className={styles.muted}>
+        Tu carrito está actualizado. Cada producto se procesa por separado.
+      </p>
 
       {!entries.length ? (
         <div className={styles.emptyCart}>

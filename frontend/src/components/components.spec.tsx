@@ -191,8 +191,16 @@ it('carrito muestra subtotal, modifica unidades y cierra devolviendo foco', () =
   expect(checkout).toHaveBeenCalledWith(product.id);
   fireEvent.click(screen.getByLabelText(`Eliminar ${product.name}`));
   expect(remove).toHaveBeenCalledWith(product.id);
-  fireEvent.click(screen.getByLabelText('Cerrar carrito'));
+  const dialog = screen.getByRole('dialog');
+  fireEvent(dialog, new Event('cancel', { bubbles: true, cancelable: true }));
   expect(close).toHaveBeenCalledTimes(1);
+  jest
+    .spyOn(dialog, 'getBoundingClientRect')
+    .mockReturnValue({ left: 100, right: 540, top: 0, bottom: 667 } as DOMRect);
+  fireEvent.click(dialog, { clientX: 20, clientY: 100 });
+  expect(close).toHaveBeenCalledTimes(2);
+  fireEvent.click(screen.getByLabelText('Cerrar carrito'));
+  expect(close).toHaveBeenCalledTimes(3);
   unmount();
   expect(opener).toHaveFocus();
   opener.remove();

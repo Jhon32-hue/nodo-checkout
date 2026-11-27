@@ -107,6 +107,16 @@
   font: inherit;
   font-size: 14px;
 }
+.search button {
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  background: transparent;
+  color: #52525b;
+}
+.search button:hover:not(:disabled) {
+  background: #e4e4e7;
+}
 
 .srOnly {
   position: absolute;

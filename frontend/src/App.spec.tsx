@@ -1,4 +1,10 @@
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import {
+  render,
+  screen,
+  fireEvent,
+  act,
+  waitFor,
+} from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { App } from './App';
 import { makeStore, actions } from './state/store';
@@ -47,6 +53,7 @@ it('conecta catálogo, compra, resumen y resultado con Redux sin pagar por monta
   await act(async () => {
     store.dispatch(actions.products([product]));
   });
+  jest.mocked(Element.prototype.scrollIntoView).mockClear();
   fireEvent.change(
     screen.getByRole('searchbox', { name: 'Buscar productos' }),
     {
@@ -54,6 +61,26 @@ it('conecta catálogo, compra, resumen y resultado con Redux sin pagar por monta
     },
   );
   expect(screen.getByText(/No encontramos productos/)).toBeInTheDocument();
+  expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+  fireEvent.submit(screen.getByRole('searchbox').closest('form')!);
+  await waitFor(() =>
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({
+      behavior: 'smooth',
+      block: 'start',
+    }),
+  );
+  expect(screen.getByText('0 productos encontrados.')).toBeInTheDocument();
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: jest.fn().mockReturnValue({ matches: true }),
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Buscar' }));
+  await waitFor(() =>
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({
+      behavior: 'instant',
+      block: 'start',
+    }),
+  );
   fireEvent.change(
     screen.getByRole('searchbox', { name: 'Buscar productos' }),
     { target: { value: '' } },
@@ -146,6 +173,8 @@ it('carrito conserva varios productos en orden y no inicia checkout al agregar',
     { productId: product.id, quantity: 1 },
   ]);
   expect(f.begin).not.toHaveBeenCalled();
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText('Cerrar carrito'));
   fireEvent.click(screen.getByText(/Volver al catálogo/));
   fireEvent.click(
     screen.getByRole('button', { name: 'Ver detalle de Otro producto' }),
@@ -155,6 +184,7 @@ it('carrito conserva varios productos en orden y no inicia checkout al agregar',
     { productId: product.id, quantity: 1 },
     { productId: second.id, quantity: 1 },
   ]);
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
   expect(f.begin).not.toHaveBeenCalled();
 });
 
@@ -201,9 +231,8 @@ it('filtra localmente por categoría, permite volver a todos y agrega desde la t
   expect(store.getState().cart).toEqual({
     items: [{ productId: product.id, quantity: 1 }],
   });
-  expect(screen.getByRole('status')).toHaveTextContent(
-    'Producto agregado al carrito.',
-  );
+  expect(screen.getByText('Producto agregado al carrito.')).toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText('Cerrar carrito'));
   await act(async () =>
     store.dispatch(
       actions.cart({
