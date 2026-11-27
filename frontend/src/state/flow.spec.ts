@@ -509,7 +509,9 @@ it.each(['RESOURCE_NOT_FOUND', 'SESSION_REQUIRED'])(
       step: 'result',
     });
     f.store.dispatch(actions.products([product]));
-    f.store.dispatch(actions.cart({ productId: product.id, quantity: 1 }));
+    f.store.dispatch(
+      actions.cart({ items: [{ productId: product.id, quantity: 1 }] }),
+    );
     f.api.checkout.mockRejectedValueOnce(new ApiError(recoveryError));
     f.api.createCheckout.mockResolvedValueOnce(freshCheckout);
 
@@ -517,7 +519,7 @@ it.each(['RESOURCE_NOT_FOUND', 'SESSION_REQUIRED'])(
     await flow.initialize();
 
     expect(f.store.getState()).toMatchObject({
-      cart: { productId: product.id, quantity: 1 },
+      cart: { items: [{ productId: product.id, quantity: 1 }] },
       checkout: null,
       attempt: null,
       error: '',
@@ -538,8 +540,7 @@ it.each(['RESOURCE_NOT_FOUND', 'SESSION_REQUIRED'])(
     expect(f.api.createCheckout).toHaveBeenCalledTimes(1);
     expect(f.store.getState().checkout?.id).toBe(freshCheckout.id);
     expect(f.store.getState().cart).toEqual({
-      productId: product.id,
-      quantity: 1,
+      items: [{ productId: product.id, quantity: 1 }],
     });
     expect(f.store.getState().recoveryWarning).toBe('');
     expect(loadProgress()).toEqual({
@@ -554,7 +555,9 @@ it.each(['RESOURCE_NOT_FOUND', 'SESSION_REQUIRED'])(
 it('un error del historial no bloquea catálogo, carrito ni una compra nueva', async () => {
   const f = fixture();
   await f.flow.initialize();
-  f.store.dispatch(actions.cart({ productId: product.id, quantity: 1 }));
+  f.store.dispatch(
+    actions.cart({ items: [{ productId: product.id, quantity: 1 }] }),
+  );
   f.api.purchases.mockRejectedValueOnce(new ApiError('SESSION_REQUIRED'));
 
   await f.flow.history();
@@ -563,8 +566,7 @@ it('un error del historial no bloquea catálogo, carrito ni una compra nueva', a
   expect(f.store.getState().error).toBe('');
   expect(f.store.getState().products).toEqual([product]);
   expect(f.store.getState().cart).toEqual({
-    productId: product.id,
-    quantity: 1,
+    items: [{ productId: product.id, quantity: 1 }],
   });
 
   await f.flow.begin(product.id, 1);
@@ -611,7 +613,17 @@ it('descarta solo el puntero de un borrador sin intento y conserva los activos',
 it('tras APPROVED refresca catálogo e historial, limpia estado local y vuelve al inicio sin reenviar', async () => {
   const f = fixture();
   await prepared(f);
-  f.store.dispatch(actions.cart({ productId: product.id, quantity: 1 }));
+  const second = { ...product, id: '44444444-4444-4444-8444-444444444444' };
+  f.api.products.mockResolvedValue([product, second]);
+  f.store.dispatch(actions.products([product, second]));
+  f.store.dispatch(
+    actions.cart({
+      items: [
+        { productId: product.id, quantity: 1 },
+        { productId: second.id, quantity: 2 },
+      ],
+    }),
+  );
   f.api.pay.mockResolvedValue({
     ...attempt,
     status: 'APPROVED',
@@ -627,7 +639,7 @@ it('tras APPROVED refresca catálogo e historial, limpia estado local y vuelve a
   expect(f.store.getState()).toMatchObject({
     checkout: null,
     summary: null,
-    cart: null,
+    cart: { items: [{ productId: second.id, quantity: 2 }] },
     historyLoaded: true,
     attempt: { status: 'APPROVED' },
   });

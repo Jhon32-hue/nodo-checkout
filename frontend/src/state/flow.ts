@@ -457,7 +457,13 @@ export class Flow {
     saveProgress(this.progress, this.storage);
     this.personalDraft = null;
     this.forgetCard();
-    this.store.dispatch(actions.cart(null));
+    this.store.dispatch(
+      actions.cart({
+        items: state.cart.items.filter(
+          (item) => item.productId !== state.checkout?.productId,
+        ),
+      }),
+    );
     this.store.dispatch(actions.checkout(null));
     this.store.dispatch(actions.summary(null));
     this.store.dispatch(actions.recoveryWarning(''));
@@ -495,7 +501,8 @@ export class Flow {
       if (t?.status !== 'PENDING') {
         this.progress = { step: 'catalog' };
         this.store.dispatch(actions.reset());
-        if (t?.status === 'APPROVED') this.store.dispatch(actions.cart(null));
+        if (t?.status === 'APPROVED')
+          this.store.dispatch(actions.cart({ items: [] }));
       }
       this.store.dispatch(actions.products(await this.api.products()));
       this.save('catalog');

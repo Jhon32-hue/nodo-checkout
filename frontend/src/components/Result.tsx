@@ -95,9 +95,11 @@ export function Result({
     };
   }, [attempt.id, attempt.status, attempt.dispatchStatus, flow]);
   return (
-    <div className={styles.result}>
+    <div className={styles.result} aria-busy={busy}>
       <div
-        className={`${styles.resultSymbol} ${styles[tone]}`}
+        className={`${styles.resultSymbol} ${styles[tone]} ${
+          attempt.status === 'PENDING' ? styles.resultSymbolActive : ''
+        }`}
         aria-hidden="true"
       >
         {tone === 'success' ? (
@@ -116,6 +118,11 @@ export function Result({
       <span className={styles.eyebrow}>ESTADO DE TU COMPRA</span>
       <h2>{view.title}</h2>
       <p aria-live="polite">{view.body}</p>
+      {busy && (
+        <p className={styles.resultLoading} role="status">
+          Actualizando el estado de tu compra
+        </p>
+      )}
       <div className={styles.resultReference}>
         <span>Referencia de compra</span>
         <strong>

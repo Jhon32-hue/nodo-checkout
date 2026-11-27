@@ -6,6 +6,7 @@ import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import MenuIcon from '@mui/icons-material/Menu';
 import CloseIcon from '@mui/icons-material/Close';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import SearchIcon from '@mui/icons-material/Search';
 import { actions, type State } from './state/store';
 import type { Flow } from './state/flow';
 import { ProductCard } from './components/ProductCard';
@@ -19,7 +20,14 @@ import { Summary } from './components/Summary';
 import { Result } from './components/Result';
 import { CheckoutProgress } from './components/CheckoutProgress';
 import { Purchases } from './components/Purchases';
+import { CheckoutProductPreview } from './components/CheckoutProductPreview';
 import { recoveryNotice } from './state/recovery';
+import {
+  addCartItem,
+  cartUnits,
+  removeCartItem,
+  updateCartItem,
+} from './state/cart';
 import styles from './App.module.css';
 import shopStyles from './Storefront.module.css';
 import {
@@ -31,13 +39,11 @@ import {
 export function App({ flow }: { flow: Flow }) {
   const dispatch = useDispatch();
   const [category, setCategory] = useState<CategoryFilter>('all');
+  const [search, setSearch] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [checkoutDialogOpen, setCheckoutDialogOpen] = useState(false);
-  const [replacement, setReplacement] = useState<{
-    productId: string;
-    quantity: number;
-  } | null>(null);
+  const [checkoutProductOpen, setCheckoutProductOpen] = useState(false);
   const [draft, setDraft] = useState<
     (DetailsDraft & { checkoutId: string }) | null
   >(null);
@@ -95,28 +101,31 @@ export function App({ flow }: { flow: Flow }) {
         : undefined;
   const product = s.products.find((p) => p.id === s.checkout?.productId);
   const selected = s.products.find((p) => p.id === selectedProductId);
-  const cartProduct = s.products.find((p) => p.id === cart?.productId);
+  const cartCount = cartUnits(cart);
   const pending = s.attempt?.status === 'PENDING';
-  const visibleProducts = filterProducts(s.products, category);
+  const normalizedSearch = search.trim().toLocaleLowerCase('es-CO');
+  const visibleProducts = filterProducts(s.products, category).filter(
+    (item) =>
+      !normalizedSearch ||
+      [item.name, item.description, item.category ?? ''].some((value) =>
+        value.toLocaleLowerCase('es-CO').includes(normalizedSearch),
+      ),
+  );
   const recovery = recoveryNotice(s.checkout, s.attempt);
   const navigateCheckout = (target: State['step']) => {
     if (target === 'catalog' && s.checkout) {
-      dispatch(actions.selectedProduct(s.checkout.productId));
-      dispatch(actions.cartOpen(false));
-      setCheckoutDialogOpen(false);
+      setCheckoutProductOpen(true);
       return;
     }
+    setCheckoutProductOpen(false);
     setCheckoutDialogOpen(true);
     flow.navigate(target);
   };
   const addCart = (productId: string, quantity: number) => {
-    if (cart && cart.productId !== productId) {
-      setReplacement({ productId, quantity });
-      return;
-    }
     const product = s.products.find((item) => item.id === productId);
     const limit = Math.min(product?.available ?? 0, 99);
-    if ((cart?.quantity ?? 0) >= limit) {
+    const current = cart.items.find((item) => item.productId === productId);
+    if ((current?.quantity ?? 0) >= limit) {
       dispatch(
         actions.notice(
           'Ya tienes todas las unidades disponibles en el carrito.',
@@ -125,10 +134,7 @@ export function App({ flow }: { flow: Flow }) {
       return;
     }
     dispatch(
-      actions.cart({
-        productId,
-        quantity: Math.min(limit, (cart?.quantity ?? 0) + quantity),
-      }),
+      actions.cart(addCartItem(cart, { productId, quantity }, s.products)),
     );
     dispatch(actions.notice('Producto agregado al carrito.'));
   };
@@ -194,259 +200,316 @@ export function App({ flow }: { flow: Flow }) {
         >
           {menuOpen ? <CloseIcon /> : <MenuIcon />}
         </button>
+        <label className={shopStyles.search}>
+          <SearchIcon fontSize="small" aria-hidden="true" />
+          <span className={shopStyles.srOnly}>Buscar productos</span>
+          <input
+            type="search"
+            value={search}
+            placeholder="Buscar productos"
+            aria-label="Buscar productos"
+            onChange={(event) => {
+              setSearch(event.target.value);
+              if (event.target.value.trim()) goTo('catalogo');
+            }}
+          />
+        </label>
         <Button
           variant="outlined"
           startIcon={<ShoppingCartIcon />}
           className={shopStyles.cartTrigger}
-          aria-label={`Abrir carrito, ${cart?.quantity ?? 0} unidades`}
+          aria-label={`Abrir carrito, ${cartCount} unidades`}
           onClick={() => dispatch(actions.cartOpen(true))}
         >
           <span className={shopStyles.cartText}>Carrito</span>
-          <span className={shopStyles.cartCount}>{cart?.quantity ?? 0}</span>
+          <span className={shopStyles.cartCount}>{cartCount}</span>
         </Button>
       </header>
-      <main>
-        {!selected && s.step !== 'result' && (
-          <section id="inicio" className={shopStyles.hero}>
-            <div className={shopStyles.heroCopy}>
-              <span className={shopStyles.heroEyebrow}>
-                TECNOLOGÍA PARA TU DÍA A DÍA
-              </span>
-              <h1>
-                Conecta con lo que importa<span>.</span>
-              </h1>
-              <p>Explora audio, accesorios y herramientas para tu espacio.</p>
-              <a
-                href="#catalogo"
-                className={shopStyles.heroCta}
-                onClick={() => goTo('catalogo')}
-              >
-                Ver productos{' '}
-                <ArrowForwardIcon fontSize="small" aria-hidden="true" />
-              </a>
-            </div>
-            <img
-              className={shopStyles.heroBanner}
-              src="/images/store/banner.jpg"
-              alt=""
-              width="3038"
-              height="1375"
-              fetchPriority="high"
-              aria-hidden="true"
-            />
-          </section>
-        )}
-        {!selected && s.step !== 'result' && (
-          <CategoryMosaic products={s.products} onSelect={selectCategory} />
-        )}
-        <Snackbar
-          open={!!notice}
-          message={notice}
-          autoHideDuration={3500}
-          onClose={(_, reason) => {
-            if (reason !== 'clickaway') dispatch(actions.notice(''));
-          }}
-          slotProps={{ content: { role: 'status' } }}
-        />
-        {recoveryWarning && (
-          <div className={styles.error} role="alert">
-            {recoveryWarning}
-            {cart && (
-              <button
-                type="button"
-                className={styles.textButton}
-                disabled={s.busy}
-                onClick={() => void flow.begin(cart.productId, cart.quantity)}
-              >
-                Iniciar una nueva compra
-              </button>
-            )}
-          </div>
-        )}
-        {s.error && (
-          <div className={styles.error} role="alert">
-            {s.error}
-            {s.checkout && (
-              <button
-                className={styles.textButton}
-                disabled={s.busy}
-                onClick={() => void flow.recover()}
-              >
-                Recuperar estado de mi compra
-              </button>
-            )}
-          </div>
-        )}
-        {s.step === 'result' && s.attempt ? (
-          <section className={styles.resultPanel}>
-            <CheckoutProgress
-              flow={flow}
-              current={s.step}
-              busy={s.busy}
-              onNavigate={navigateCheckout}
-            />
-            <Result attempt={s.attempt} flow={flow} busy={s.busy} />
-          </section>
-        ) : selected ? (
-          <>
-            {s.checkout?.productId === selected.id && (
-              <CheckoutProgress
-                flow={flow}
-                current={s.step}
-                busy={s.busy}
-                onNavigate={navigateCheckout}
-              />
-            )}
-            <ProductDetail
-              key={selected.id}
-              product={selected}
-              disabled={s.busy || pending}
-              onBack={() => goTo('catalogo')}
-              onAdd={(n) => addCart(selected.id, n)}
-              onBuy={(n) => {
-                dispatch(actions.selectedProduct(null));
-                setCheckoutDialogOpen(true);
-                void flow.begin(selected.id, n);
-              }}
-            />
-          </>
+      <main className={historyOpen ? styles.historyPageShell : undefined}>
+        {historyOpen ? (
+          <Purchases
+            items={purchases}
+            products={products}
+            loaded={historyLoaded}
+            busy={busy}
+            error={historyError}
+            onBack={() => setHistoryOpen(false)}
+            onRetry={() => void flow.history()}
+            onOpen={(item) => {
+              setHistoryOpen(false);
+              dispatch(actions.selectedProduct(null));
+              void flow.openPurchase(item);
+            }}
+          />
         ) : (
-          <section id="catalogo" className={shopStyles.catalog}>
-            <div className={shopStyles.sectionHeading}>
-              <div>
-                <span className={shopStyles.kicker}>SELECCIÓN NODO</span>
-                <h2>
-                  {category === 'all'
-                    ? 'Todos los productos'
-                    : categoryNames[category]}
-                </h2>
-              </div>
-              <span>
-                {visibleProducts.length}{' '}
-                {visibleProducts.length === 1 ? 'producto' : 'productos'}
-              </span>
-            </div>
-            <div
-              className={shopStyles.filters}
-              role="group"
-              aria-label="Filtrar productos por categoría"
-            >
-              {(
-                [
-                  'all',
-                  'audio',
-                  'computacion',
-                  'accesorios',
-                  'almacenamiento',
-                  'hogar-inteligente',
-                ] as const
-              ).map((filter) => (
-                <button
-                  type="button"
-                  key={filter}
-                  className={category === filter ? shopStyles.filterActive : ''}
-                  aria-pressed={category === filter}
-                  onClick={() => setCategory(filter)}
-                >
-                  {filter === 'all' ? 'Todos' : categoryNames[filter]}
-                </button>
-              ))}
-            </div>
-            {recovery && (
-              <div
-                className={`${shopStyles.resume} ${pending ? shopStyles.resumePending : ''}`}
-              >
-                <span>{recovery.message}</span>
-                <div className={shopStyles.resumeActions}>
+          <>
+            {!selected && s.step !== 'result' && (
+              <section id="inicio" className={shopStyles.hero}>
+                <div className={shopStyles.heroCopy}>
+                  <span className={shopStyles.heroEyebrow}>
+                    TECNOLOGÍA PARA TU DÍA A DÍA
+                  </span>
+                  <h1>
+                    Conecta con lo que importa<span>.</span>
+                  </h1>
+                  <p>
+                    Explora audio, accesorios y herramientas para tu espacio.
+                  </p>
+                  <a
+                    href="#catalogo"
+                    className={shopStyles.heroCta}
+                    onClick={() => goTo('catalogo')}
+                  >
+                    Ver productos{' '}
+                    <ArrowForwardIcon fontSize="small" aria-hidden="true" />
+                  </a>
+                </div>
+                <img
+                  className={shopStyles.heroBanner}
+                  src="/images/store/banner.jpg"
+                  alt=""
+                  width="3038"
+                  height="1375"
+                  fetchPriority="high"
+                  aria-hidden="true"
+                />
+              </section>
+            )}
+            {!selected && s.step !== 'result' && (
+              <CategoryMosaic products={s.products} onSelect={selectCategory} />
+            )}
+            <Snackbar
+              open={!!notice}
+              message={notice}
+              autoHideDuration={3500}
+              onClose={(_, reason) => {
+                if (reason !== 'clickaway') dispatch(actions.notice(''));
+              }}
+              slotProps={{ content: { role: 'status' } }}
+            />
+            {recoveryWarning && (
+              <div className={styles.error} role="alert">
+                {recoveryWarning}
+                {!!cart.items.length && (
                   <button
+                    type="button"
+                    className={styles.textButton}
                     disabled={s.busy}
                     onClick={() => {
-                      setCheckoutDialogOpen(true);
-                      void flow.recover();
+                      const first = cart.items[0];
+                      if (first)
+                        void flow.begin(first.productId, first.quantity);
                     }}
                   >
-                    {recovery.action === 'status'
-                      ? 'Consultar estado'
-                      : 'Continuar'}
+                    Iniciar una nueva compra
                   </button>
-                  {recovery.canDiscard && (
-                    <button
-                      disabled={s.busy}
-                      onClick={() => {
-                        if (flow.discardLocalDraft()) {
-                          setDraft(null);
-                          dispatch(
-                            actions.notice('Borrador local descartado.'),
-                          );
-                        }
-                      }}
-                    >
-                      Descartar borrador local
-                    </button>
-                  )}
-                </div>
+                )}
               </div>
             )}
-            {s.busy && s.products.length === 0 && (
-              <div
-                role="status"
-                aria-label="Consultando la colección"
-                className={shopStyles.skeletonGrid}
-              >
-                {[1, 2, 3].map((n) => (
-                  <div key={n} className={shopStyles.skeleton} />
-                ))}
+            {s.error && (
+              <div className={styles.error} role="alert">
+                {s.error}
+                {s.checkout && (
+                  <button
+                    className={styles.textButton}
+                    disabled={s.busy}
+                    onClick={() => void flow.recover()}
+                  >
+                    Recuperar estado de mi compra
+                  </button>
+                )}
               </div>
             )}
-            <div className={shopStyles.grid}>
-              {visibleProducts.map((p) => (
-                <ProductCard
-                  key={p.id}
-                  product={p}
-                  onOpen={(id) => dispatch(actions.selectedProduct(id))}
-                  onAdd={(id) => addCart(id, 1)}
+            {s.step === 'result' && s.attempt ? (
+              <section className={styles.resultPanel}>
+                <CheckoutProgress
+                  flow={flow}
+                  current={s.step}
+                  busy={s.busy}
+                  onNavigate={navigateCheckout}
                 />
-              ))}
-            </div>
-            {!s.busy &&
-              s.products.length > 0 &&
-              visibleProducts.length === 0 && (
-                <p className={shopStyles.emptyFilter}>
-                  No hay productos en esta categoría.{' '}
-                  <button type="button" onClick={() => setCategory('all')}>
-                    Ver todos
+                <Result attempt={s.attempt} flow={flow} busy={s.busy} />
+              </section>
+            ) : selected ? (
+              <>
+                {s.checkout?.productId === selected.id && (
+                  <CheckoutProgress
+                    flow={flow}
+                    current={s.step}
+                    busy={s.busy}
+                    onNavigate={navigateCheckout}
+                  />
+                )}
+                <ProductDetail
+                  key={selected.id}
+                  product={selected}
+                  disabled={s.busy || pending}
+                  onBack={() => goTo('catalogo')}
+                  onAdd={(n) => addCart(selected.id, n)}
+                  onBuy={(n) => {
+                    dispatch(actions.selectedProduct(null));
+                    setCheckoutDialogOpen(true);
+                    void flow.begin(selected.id, n);
+                  }}
+                />
+              </>
+            ) : (
+              <section id="catalogo" className={shopStyles.catalog}>
+                <div className={shopStyles.sectionHeading}>
+                  <div>
+                    <span className={shopStyles.kicker}>SELECCIÓN NODO</span>
+                    <h2>
+                      {category === 'all'
+                        ? 'Todos los productos'
+                        : categoryNames[category]}
+                    </h2>
+                  </div>
+                  <span>
+                    {visibleProducts.length}{' '}
+                    {visibleProducts.length === 1 ? 'producto' : 'productos'}
+                  </span>
+                </div>
+                <div
+                  className={shopStyles.filters}
+                  role="group"
+                  aria-label="Filtrar productos por categoría"
+                >
+                  {(
+                    [
+                      'all',
+                      'audio',
+                      'computacion',
+                      'accesorios',
+                      'almacenamiento',
+                      'hogar-inteligente',
+                    ] as const
+                  ).map((filter) => (
+                    <button
+                      type="button"
+                      key={filter}
+                      className={
+                        category === filter ? shopStyles.filterActive : ''
+                      }
+                      aria-pressed={category === filter}
+                      onClick={() => setCategory(filter)}
+                    >
+                      {filter === 'all' ? 'Todos' : categoryNames[filter]}
+                    </button>
+                  ))}
+                </div>
+                {recovery && (
+                  <div
+                    className={`${shopStyles.resume} ${pending ? shopStyles.resumePending : ''}`}
+                  >
+                    <span>{recovery.message}</span>
+                    <div className={shopStyles.resumeActions}>
+                      <button
+                        disabled={s.busy}
+                        onClick={() => {
+                          setCheckoutDialogOpen(true);
+                          void flow.recover();
+                        }}
+                      >
+                        {recovery.action === 'status'
+                          ? 'Consultar estado'
+                          : 'Continuar'}
+                      </button>
+                      {recovery.canDiscard && (
+                        <button
+                          disabled={s.busy}
+                          onClick={() => {
+                            if (flow.discardLocalDraft()) {
+                              setDraft(null);
+                              dispatch(
+                                actions.notice('Borrador local descartado.'),
+                              );
+                            }
+                          }}
+                        >
+                          Descartar borrador local
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {s.busy && s.products.length === 0 && (
+                  <div
+                    role="status"
+                    aria-label="Consultando la colección"
+                    className={shopStyles.skeletonGrid}
+                  >
+                    {[1, 2, 3].map((n) => (
+                      <div key={n} className={shopStyles.skeleton} />
+                    ))}
+                  </div>
+                )}
+                <div className={shopStyles.grid}>
+                  {visibleProducts.map((p) => (
+                    <ProductCard
+                      key={p.id}
+                      product={p}
+                      onOpen={(id) => dispatch(actions.selectedProduct(id))}
+                      onAdd={(id) => addCart(id, 1)}
+                    />
+                  ))}
+                </div>
+                {!s.busy &&
+                  s.products.length > 0 &&
+                  visibleProducts.length === 0 && (
+                    <p className={shopStyles.emptyFilter}>
+                      No encontramos productos con estos filtros.{' '}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCategory('all');
+                          setSearch('');
+                        }}
+                      >
+                        Limpiar filtros
+                      </button>
+                    </p>
+                  )}
+                {!s.busy && s.products.length === 0 && (
+                  <button onClick={() => void flow.initialize()}>
+                    Volver a consultar catálogo
                   </button>
-                </p>
-              )}
-            {!s.busy && s.products.length === 0 && (
-              <button onClick={() => void flow.initialize()}>
-                Volver a consultar catálogo
-              </button>
+                )}
+              </section>
             )}
-          </section>
+          </>
         )}
       </main>
       <footer className={shopStyles.footer}>
-        <span className={shopStyles.logo}>
-          nodo<span className={shopStyles.logoDot}>.</span>
-        </span>
-        <p>Tecnología cotidiana, elegida con intención.</p>
+        <div className={shopStyles.footerBrand}>
+          <span className={shopStyles.logo}>
+            nodo<span className={shopStyles.logoDot}>.</span>
+          </span>
+          <p>Tecnología cotidiana, elegida con intención.</p>
+        </div>
+        <div className={shopStyles.footerCta}>
+          <span>Encuentra tu próximo esencial tecnológico.</span>
+          <a href="#catalogo" onClick={() => goTo('catalogo')}>
+            Explorar productos
+            <ArrowForwardIcon fontSize="small" aria-hidden="true" />
+          </a>
+        </div>
         <small>Una compra a la vez · Hecho para explorar</small>
       </footer>
       {cartOpen && (
         <CartDrawer
           cart={cart}
-          product={cartProduct}
+          products={s.products}
           busy={s.busy || pending}
           onClose={() => dispatch(actions.cartOpen(false))}
           onExplore={() => goTo('catalogo')}
-          onQuantity={(n) =>
-            cart && dispatch(actions.cart({ ...cart, quantity: n }))
+          onQuantity={(productId, quantity) =>
+            dispatch(actions.cart(updateCartItem(cart, productId, quantity)))
           }
-          onRemove={() => {
-            const discarded = flow.discardLocalDraft();
+          onRemove={(productId) => {
+            const discarded =
+              s.checkout?.productId === productId && flow.discardLocalDraft();
             if (discarded) setDraft(null);
-            dispatch(actions.cart(null));
+            dispatch(actions.cart(removeCartItem(cart, productId)));
             dispatch(
               actions.notice(
                 discarded
@@ -457,69 +520,36 @@ export function App({ flow }: { flow: Flow }) {
               ),
             );
           }}
-          onCheckout={() => {
-            if (cart) {
+          onCheckout={(productId) => {
+            const item = cart.items.find(
+              (candidate) => candidate.productId === productId,
+            );
+            if (item) {
               dispatch(actions.cartOpen(false));
               setCheckoutDialogOpen(true);
-              void flow.begin(cart.productId, cart.quantity);
+              setCheckoutProductOpen(false);
+              void flow.begin(item.productId, item.quantity);
             }
           }}
         />
-      )}
-      {replacement && (
-        <Dialog
-          title="Reemplazar producto"
-          onClose={() => setReplacement(null)}
-        >
-          <p>
-            El carrito admite un solo producto. ¿Quieres reemplazar el actual
-            por este?
-          </p>
-          <button
-            onClick={() => {
-              dispatch(actions.cart(replacement));
-              dispatch(actions.notice('Producto reemplazado en el carrito.'));
-              setReplacement(null);
-            }}
-          >
-            Sí, reemplazar
-          </button>
-          <button
-            className={styles.textButton}
-            onClick={() => setReplacement(null)}
-          >
-            Conservar el actual
-          </button>
-        </Dialog>
-      )}
-      {historyOpen && (
-        <Dialog title="Mis compras" onClose={() => setHistoryOpen(false)}>
-          <Purchases
-            items={purchases}
-            loaded={historyLoaded}
-            busy={busy}
-            error={historyError}
-            onRetry={() => void flow.history()}
-            onOpen={(item) => {
-              setHistoryOpen(false);
-              dispatch(actions.selectedProduct(null));
-              void flow.openPurchase(item);
-            }}
-          />
-        </Dialog>
       )}
       {checkoutDialogOpen &&
         (s.step === 'details' || s.step === 'summary') &&
         s.checkout && (
           <Dialog
             title={
-              s.step === 'details' ? 'Pagar con tarjeta' : 'Resumen de compra'
+              checkoutProductOpen
+                ? 'Producto de la compra'
+                : s.step === 'details'
+                  ? 'Pagar con tarjeta'
+                  : 'Resumen de compra'
             }
             error={s.error}
             onClose={() => {
               if (!s.busy) {
                 flow.close();
                 setCheckoutDialogOpen(false);
+                setCheckoutProductOpen(false);
                 setDraft((current) =>
                   current
                     ? {
@@ -534,16 +564,22 @@ export function App({ flow }: { flow: Flow }) {
           >
             <CheckoutProgress
               flow={flow}
-              current={s.step}
+              current={checkoutProductOpen ? 'catalog' : s.step}
               busy={s.busy}
               onNavigate={navigateCheckout}
             />
-            {s.error && (
+            {s.error && !checkoutProductOpen && (
               <p className={styles.error} role="alert" tabIndex={-1}>
                 {s.error}
               </p>
             )}
-            {s.step === 'details' ? (
+            {checkoutProductOpen && product ? (
+              <CheckoutProductPreview
+                product={product}
+                quantity={s.checkout.quantity}
+                onReturn={() => setCheckoutProductOpen(false)}
+              />
+            ) : s.step === 'details' ? (
               <DetailsForm
                 key={s.checkout.id}
                 checkout={s.checkout}

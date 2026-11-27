@@ -1,10 +1,16 @@
-import type { PurchaseHistoryItem } from '../types';
+import type { Product, PurchaseHistoryItem } from '../types';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import CalendarTodayOutlinedIcon from '@mui/icons-material/CalendarTodayOutlined';
 import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutlined';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
 import HourglassTopIcon from '@mui/icons-material/HourglassTop';
+import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
+import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import Skeleton from '@mui/material/Skeleton';
+import { productImage } from '../storefront';
 import styles from '../App.module.css';
 
 export function purchaseStatus(item: PurchaseHistoryItem) {
@@ -54,28 +60,63 @@ const money = new Intl.NumberFormat('es-CO', {
   maximumFractionDigits: 0,
 });
 
+const date = new Intl.DateTimeFormat('es-CO', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+});
+
 export function Purchases({
   items,
+  products,
   loaded,
   busy,
   error,
+  onBack,
   onRetry,
   onOpen,
 }: {
   items: PurchaseHistoryItem[];
+  products: Product[];
   loaded: boolean;
   busy: boolean;
   error: string;
+  onBack: () => void;
   onRetry: () => void;
   onOpen: (item: PurchaseHistoryItem) => void;
 }) {
   return (
     <section className={styles.purchaseHistory} aria-labelledby="history-title">
-      <h3 id="history-title">Mis compras</h3>
+      <button type="button" className={styles.historyBack} onClick={onBack}>
+        <ArrowBackIcon fontSize="small" aria-hidden="true" />
+        Volver a la tienda
+      </button>
+
+      <header className={styles.historyHero}>
+        <div>
+          <span className={styles.eyebrow}>TU ACTIVIDAD</span>
+          <h1 id="history-title">Mis compras</h1>
+          <p>
+            Consulta el estado y los detalles de las compras realizadas en esta
+            sesión invitada.
+          </p>
+        </div>
+        <div
+          className={styles.historyCount}
+          aria-label={`${items.length} compras`}
+        >
+          <ReceiptLongOutlinedIcon aria-hidden="true" />
+          <strong>{items.length}</strong>
+          <span>{items.length === 1 ? 'compra' : 'compras'}</span>
+        </div>
+      </header>
+
       <p className={styles.historyLimit}>
-        Se muestran únicamente los intentos asociados a esta sesión invitada.
-        Perder o vencer la cookie impide recuperarlos desde este navegador.
+        Este historial pertenece a la sesión de este navegador. Si la sesión
+        vence, las compras permanecen registradas, pero ya no estarán
+        disponibles desde aquí.
       </p>
+
       {busy && !loaded && (
         <div
           className={styles.historySkeletons}
@@ -83,61 +124,101 @@ export function Purchases({
           aria-label="Consultando tus compras"
         >
           {[0, 1, 2].map((position) => (
-            <Skeleton key={position} variant="rounded" height={112} />
+            <div className={styles.historySkeleton} key={position}>
+              <Skeleton variant="rounded" width={132} height={132} />
+              <div>
+                <Skeleton width="35%" />
+                <Skeleton width="72%" height={34} />
+                <Skeleton width="52%" />
+                <Skeleton width="42%" />
+              </div>
+            </div>
           ))}
         </div>
       )}
+
       {error && (
-        <div className={styles.error} role="alert">
-          {error}
+        <div className={styles.historyError} role="alert">
+          <ErrorOutlineIcon aria-hidden="true" />
+          <div>
+            <strong>No pudimos consultar tus compras</strong>
+            <p>{error}</p>
+          </div>
           <button type="button" onClick={onRetry} disabled={busy}>
             Intentar de nuevo
           </button>
         </div>
       )}
+
       {!busy && loaded && !error && items.length === 0 && (
-        <p className={styles.historyEmpty}>
-          Aún no hay compras en esta sesión. Explora los productos para iniciar
-          tu primera compra.
-        </p>
+        <div className={styles.historyEmpty}>
+          <ReceiptLongOutlinedIcon aria-hidden="true" />
+          <h2>Aún no hay compras en esta sesión</h2>
+          <p>Explora los productos para iniciar tu primera compra.</p>
+          <button type="button" onClick={onBack}>
+            Ver productos
+          </button>
+        </div>
       )}
+
       <div className={styles.historyList}>
         {items.map((item) => {
           const state = purchaseStatus(item);
+          const product = products.find(
+            (candidate) => candidate.name === item.productName,
+          );
           return (
             <article className={styles.historyItem} key={item.id}>
-              <div>
+              <div className={styles.historyProductImage}>
+                {product ? (
+                  <img
+                    src={productImage(product)}
+                    alt=""
+                    width="180"
+                    height="180"
+                    loading="lazy"
+                  />
+                ) : (
+                  <Inventory2OutlinedIcon aria-hidden="true" />
+                )}
+              </div>
+
+              <div className={styles.historyProductCopy}>
                 <span
                   className={`${styles.historyStatus} ${styles[state.tone]}`}
                 >
                   <StatusIcon icon={state.icon} />
                   {state.label}
                 </span>
-                <h4>{item.productName}</h4>
-                <p>
-                  {item.quantity} {item.quantity === 1 ? 'unidad' : 'unidades'}{' '}
-                  · {new Date(item.createdAt).toLocaleDateString('es-CO')}
-                </p>
+                <h2>{item.productName}</h2>
+                <div className={styles.historyMeta}>
+                  <span>
+                    <Inventory2OutlinedIcon aria-hidden="true" />
+                    {item.quantity}{' '}
+                    {item.quantity === 1 ? 'unidad' : 'unidades'}
+                  </span>
+                  <span>
+                    <CalendarTodayOutlinedIcon aria-hidden="true" />
+                    {date.format(new Date(item.createdAt))}
+                  </span>
+                </div>
+                <span className={styles.historyReference}>
+                  Referencia <code>{item.reference}</code>
+                </span>
               </div>
-              <dl>
-                <div>
-                  <dt>Total</dt>
-                  <dd>{money.format(item.totalCents / 100)}</dd>
-                </div>
-                <div>
-                  <dt>Referencia</dt>
-                  <dd>
-                    <code>{item.reference}</code>
-                  </dd>
-                </div>
-              </dl>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onOpen(item)}
-              >
-                Ver detalle
-              </button>
+
+              <div className={styles.historySummary}>
+                <span>Total</span>
+                <strong>{money.format(item.totalCents / 100)}</strong>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onOpen(item)}
+                >
+                  Ver detalle
+                  <ArrowForwardIcon fontSize="small" aria-hidden="true" />
+                </button>
+              </div>
             </article>
           );
         })}

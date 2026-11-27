@@ -36,13 +36,28 @@ it('conecta catálogo, compra, resumen y resultado con Redux sin pagar por monta
   expect(f.initialize).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole('button', { name: 'Mis compras' }));
   expect(f.history).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }));
+  expect(
+    screen.getByRole('heading', { name: 'Mis compras' }),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Volver a la tienda' }));
   expect(f.confirm).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText('Volver a consultar catálogo'));
   expect(f.initialize).toHaveBeenCalledTimes(2);
   await act(async () => {
     store.dispatch(actions.products([product]));
   });
+  fireEvent.change(
+    screen.getByRole('searchbox', { name: 'Buscar productos' }),
+    {
+      target: { value: 'producto inexistente' },
+    },
+  );
+  expect(screen.getByText(/No encontramos productos/)).toBeInTheDocument();
+  fireEvent.change(
+    screen.getByRole('searchbox', { name: 'Buscar productos' }),
+    { target: { value: '' } },
+  );
   fireEvent.click(
     screen.getByRole('button', { name: 'Ver detalle de ' + product.name }),
   );
@@ -58,6 +73,12 @@ it('conecta catálogo, compra, resumen y resultado con Redux sin pagar por monta
     store.dispatch(actions.step('details'));
   });
   expect(await screen.findByText('Tarjeta de crédito')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /^Producto,/ }));
+  expect(screen.getByText('PRODUCTO DE ESTA COMPRA')).toBeInTheDocument();
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  expect(f.navigate).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Volver al checkout' }));
+  expect(screen.getByText('Tarjeta de crédito')).toBeInTheDocument();
   fireEvent.click(screen.getByLabelText('Cerrar'));
   expect(f.close).toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
@@ -97,7 +118,7 @@ it('conecta catálogo, compra, resumen y resultado con Redux sin pagar por monta
   ).toBeInTheDocument();
 });
 
-it('carrito pide confirmar reemplazo y no inicia checkout al agregar', async () => {
+it('carrito conserva varios productos en orden y no inicia checkout al agregar', async () => {
   localStorage.clear();
   const store = makeStore();
   const second = {
@@ -121,20 +142,19 @@ it('carrito pide confirmar reemplazo y no inicia checkout al agregar', async () 
     screen.getByRole('button', { name: 'Ver detalle de ' + product.name }),
   );
   fireEvent.click(screen.getByText('Agregar al carrito'));
-  expect(store.getState().cart?.productId).toBe(product.id);
+  expect(store.getState().cart.items).toEqual([
+    { productId: product.id, quantity: 1 },
+  ]);
   expect(f.begin).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText(/Volver al catálogo/));
   fireEvent.click(
     screen.getByRole('button', { name: 'Ver detalle de Otro producto' }),
   );
   fireEvent.click(screen.getByText('Agregar al carrito'));
-  expect(screen.getByText(/reemplazar el actual/)).toBeInTheDocument();
-  expect(store.getState().cart?.productId).toBe(product.id);
-  fireEvent.click(screen.getByText('Conservar el actual'));
-  expect(store.getState().cart?.productId).toBe(product.id);
-  fireEvent.click(screen.getByText('Agregar al carrito'));
-  fireEvent.click(screen.getByText('Sí, reemplazar'));
-  expect(store.getState().cart?.productId).toBe(second.id);
+  expect(store.getState().cart.items).toEqual([
+    { productId: product.id, quantity: 1 },
+    { productId: second.id, quantity: 1 },
+  ]);
   expect(f.begin).not.toHaveBeenCalled();
 });
 
@@ -178,19 +198,23 @@ it('filtra localmente por categoría, permite volver a todos y agrega desde la t
   fireEvent.click(
     screen.getByRole('button', { name: `Agregar ${product.name} al carrito` }),
   );
-  expect(store.getState().cart).toEqual({ productId: product.id, quantity: 1 });
+  expect(store.getState().cart).toEqual({
+    items: [{ productId: product.id, quantity: 1 }],
+  });
   expect(screen.getByRole('status')).toHaveTextContent(
     'Producto agregado al carrito.',
   );
   await act(async () =>
     store.dispatch(
-      actions.cart({ productId: product.id, quantity: product.available }),
+      actions.cart({
+        items: [{ productId: product.id, quantity: product.available }],
+      }),
     ),
   );
   fireEvent.click(
     screen.getByRole('button', { name: `Agregar ${product.name} al carrito` }),
   );
-  expect(store.getState().cart?.quantity).toBe(product.available);
+  expect(store.getState().cart.items[0]?.quantity).toBe(product.available);
   expect(store.getState().notice).toContain(
     'Ya tienes todas las unidades disponibles',
   );
@@ -246,7 +270,9 @@ it('informa el progreso inaccesible y conserva el carrito para iniciar otra comp
   );
   await act(async () => {
     store.dispatch(actions.products([product]));
-    store.dispatch(actions.cart({ productId: product.id, quantity: 1 }));
+    store.dispatch(
+      actions.cart({ items: [{ productId: product.id, quantity: 1 }] }),
+    );
     store.dispatch(
       actions.recoveryWarning(
         'No pudimos recuperar una compra anterior porque pertenece a otra sesión o la sesión venció. La compra permanece registrada. Puedes iniciar una nueva compra.',
@@ -255,8 +281,7 @@ it('informa el progreso inaccesible y conserva el carrito para iniciar otra comp
   });
 
   expect(store.getState().cart).toEqual({
-    productId: product.id,
-    quantity: 1,
+    items: [{ productId: product.id, quantity: 1 }],
   });
   fireEvent.click(
     screen.getByRole('button', { name: 'Iniciar una nueva compra' }),

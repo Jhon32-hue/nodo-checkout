@@ -13,7 +13,7 @@ import styles from '../App.module.css';
 
 export function CartDrawer({
   cart,
-  product,
+  products,
   busy,
   onClose,
   onExplore,
@@ -21,17 +21,29 @@ export function CartDrawer({
   onRemove,
   onCheckout,
 }: {
-  cart: Cart | null;
-  product?: Product;
+  cart: Cart;
+  products: Product[];
   busy: boolean;
   onClose: () => void;
   onExplore: () => void;
-  onQuantity: (n: number) => void;
-  onRemove: () => void;
-  onCheckout: () => void;
+  onQuantity: (productId: string, quantity: number) => void;
+  onRemove: (productId: string) => void;
+  onCheckout: (productId: string) => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<Record<string, boolean>>({});
+  const entries = cart.items.flatMap((item) => {
+    const product = products.find(
+      (candidate) => candidate.id === item.productId,
+    );
+    return product ? [{ item, product }] : [];
+  });
+  const subtotal = entries.reduce(
+    (total, { item, product }) =>
+      total + product.unitPriceCents * item.quantity,
+    0,
+  );
+
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const dialog = ref.current!;
@@ -42,18 +54,26 @@ export function CartDrawer({
       previous?.focus();
     };
   }, []);
+
   return (
     <dialog
       ref={ref}
       className={styles.cartDrawer}
       aria-labelledby="cart-title"
-      onCancel={(e) => {
-        e.preventDefault();
+      onCancel={(event) => {
+        event.preventDefault();
         onClose();
       }}
     >
       <div className={styles.drawerHeader}>
-        <h2 id="cart-title">Tu carrito</h2>
+        <div>
+          <h2 id="cart-title">Tu carrito</h2>
+          {!!entries.length && (
+            <span>
+              {entries.length} {entries.length === 1 ? 'producto' : 'productos'}
+            </span>
+          )}
+        </div>
         <IconButton
           aria-label="Cerrar carrito"
           className={styles.iconButton}
@@ -62,64 +82,85 @@ export function CartDrawer({
           <CloseIcon />
         </IconButton>
       </div>
-      {!cart || !product ? (
+
+      {!entries.length ? (
         <div className={styles.emptyCart}>
           <p>Tu carrito está vacío.</p>
           <button onClick={onExplore}>Ver productos</button>
         </div>
       ) : (
         <>
-          <div className={styles.cartLine}>
-            <div className={styles.cartThumb}>
-              {failed ? (
-                <span aria-label={product.name}>↗</span>
-              ) : (
-                <img
-                  src={productImage(product)}
-                  alt=""
-                  width="88"
-                  height="88"
-                  onError={() => setFailed(true)}
-                />
-              )}
-            </div>
-            <div>
-              <h3>{product.name}</h3>
-              <p>{money(product.unitPriceCents)} COP por unidad</p>
-              <p>{product.available} disponibles</p>
-            </div>
+          <div className={styles.cartItems}>
+            {entries.map(({ item, product }, index) => (
+              <article className={styles.cartItem} key={product.id}>
+                <div className={styles.cartLine}>
+                  <div className={styles.cartThumb}>
+                    {failed[product.id] ? (
+                      <span aria-label={product.name}>↗</span>
+                    ) : (
+                      <img
+                        src={productImage(product)}
+                        alt=""
+                        width="88"
+                        height="88"
+                        onError={() =>
+                          setFailed((current) => ({
+                            ...current,
+                            [product.id]: true,
+                          }))
+                        }
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <span className={styles.cartOrder}>Compra {index + 1}</span>
+                    <h3>{product.name}</h3>
+                    <p>{money(product.unitPriceCents)} COP por unidad</p>
+                  </div>
+                </div>
+
+                <div className={styles.cartControls}>
+                  <QuantityStepper
+                    quantity={item.quantity}
+                    available={product.available}
+                    onChange={(quantity) => onQuantity(product.id, quantity)}
+                    label={`Cantidad de ${product.name} en carrito`}
+                  />
+                  <IconButton
+                    color="error"
+                    aria-label={`Eliminar ${product.name}`}
+                    onClick={() => onRemove(product.id)}
+                  >
+                    <DeleteOutlineIcon />
+                  </IconButton>
+                </div>
+
+                <div className={styles.cartItemFooter}>
+                  <strong>
+                    {money(product.unitPriceCents * item.quantity)} COP
+                  </strong>
+                  <Button
+                    variant="contained"
+                    startIcon={<CreditCardIcon />}
+                    disabled={busy}
+                    onClick={() => onCheckout(product.id)}
+                  >
+                    Comprar este producto
+                  </Button>
+                </div>
+              </article>
+            ))}
           </div>
-          <QuantityStepper
-            quantity={cart.quantity}
-            available={product.available}
-            onChange={onQuantity}
-            label="Cantidad en carrito"
-          />
-          <Button
-            variant="text"
-            color="error"
-            startIcon={<DeleteOutlineIcon />}
-            onClick={onRemove}
-          >
-            Eliminar producto
-          </Button>
+
           <div className={styles.cartTotal}>
-            <span>Subtotal del producto</span>
-            <strong>{money(product.unitPriceCents * cart.quantity)} COP</strong>
+            <span>Subtotal estimado del carrito</span>
+            <strong>{money(subtotal)} COP</strong>
           </div>
           <p className={styles.muted}>
-            La tarifa base, la entrega y el total definitivo se mostrarán en el
-            resumen del servidor antes de confirmar.
+            Cada producto se procesa como una compra independiente. La tarifa
+            base, la entrega y el total definitivo se mostrarán en el resumen
+            del servidor.
           </p>
-          <Button
-            variant="contained"
-            fullWidth
-            startIcon={<CreditCardIcon />}
-            disabled={busy}
-            onClick={onCheckout}
-          >
-            Pagar con tarjeta de crédito
-          </Button>
         </>
       )}
     </dialog>

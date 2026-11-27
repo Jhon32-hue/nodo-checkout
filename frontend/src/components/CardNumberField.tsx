@@ -11,7 +11,6 @@ import {
   cardNumberMax,
   formatCardNumber,
   normalizeCardNumber,
-  supportedCardLengths,
 } from '../validation';
 import styles from '../App.module.css';
 
@@ -78,7 +77,6 @@ export function CardNumberField({
       Math.min(digitsBeforeCaret, digits.length),
     );
     onChange(digits);
-    if (supportedCardLengths(digits).includes(digits.length)) onValidate?.();
   };
 
   return (
@@ -142,8 +140,6 @@ export function CardNumberField({
                 ),
               );
               onChange(digits);
-              if (supportedCardLengths(digits).includes(digits.length))
-                onValidate?.();
             },
           },
           formHelperText: { role: 'alert' },

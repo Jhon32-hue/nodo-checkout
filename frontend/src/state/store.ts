@@ -25,7 +25,7 @@ export interface State {
   step: Step;
   busy: boolean;
   error: string;
-  cart: Cart | null;
+  cart: Cart;
   selectedProductId: string | null;
   cartOpen: boolean;
   notice: string;
@@ -43,7 +43,7 @@ const initialState: State = {
   step: 'catalog',
   busy: false,
   error: '',
-  cart: null,
+  cart: { items: [] },
   selectedProductId: null,
   cartOpen: false,
   notice: '',
@@ -87,7 +87,7 @@ const slice = createSlice({
     error: (s, a: PayloadAction<string>) => {
       s.error = a.payload;
     },
-    cart: (s, a: PayloadAction<Cart | null>) => {
+    cart: (s, a: PayloadAction<Cart>) => {
       s.cart = availableCart(a.payload, s.products);
     },
     selectedProduct: (s, a: PayloadAction<string | null>) => {

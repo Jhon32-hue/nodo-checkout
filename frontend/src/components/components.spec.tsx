@@ -172,8 +172,8 @@ it('carrito muestra subtotal, modifica unidades y cierra devolviendo foco', () =
     explore = jest.fn();
   const { unmount } = render(
     <CartDrawer
-      cart={{ productId: product.id, quantity: 1 }}
-      product={product}
+      cart={{ items: [{ productId: product.id, quantity: 1 }] }}
+      products={[product]}
       busy={false}
       onQuantity={quantity}
       onRemove={remove}
@@ -182,15 +182,15 @@ it('carrito muestra subtotal, modifica unidades y cierra devolviendo foco', () =
       onExplore={explore}
     />,
   );
-  expect(screen.getByText('Subtotal del producto')).toBeInTheDocument();
+  expect(screen.getByText('Subtotal estimado del carrito')).toBeInTheDocument();
   fireEvent.click(
-    screen.getByRole('button', { name: /Aumentar Cantidad en carrito/ }),
+    screen.getByRole('button', { name: /Aumentar Cantidad de Auriculares/ }),
   );
-  expect(quantity).toHaveBeenCalledWith(2);
-  fireEvent.click(screen.getByText('Pagar con tarjeta de crédito'));
-  expect(checkout).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByText('Eliminar producto'));
-  expect(remove).toHaveBeenCalledTimes(1);
+  expect(quantity).toHaveBeenCalledWith(product.id, 2);
+  fireEvent.click(screen.getByText('Comprar este producto'));
+  expect(checkout).toHaveBeenCalledWith(product.id);
+  fireEvent.click(screen.getByLabelText(`Eliminar ${product.name}`));
+  expect(remove).toHaveBeenCalledWith(product.id);
   fireEvent.click(screen.getByLabelText('Cerrar carrito'));
   expect(close).toHaveBeenCalledTimes(1);
   unmount();
@@ -402,16 +402,12 @@ it('contratos independientes sin preselección, errores junto a campos y tarjeta
   fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
   await screen.findByRole('heading', { name: 'Tus datos' });
   expect(f.details).not.toHaveBeenCalled();
-  expect(
-    screen.getByRole('button', { name: 'Entrega, bloqueado' }),
-  ).toBeDisabled();
-  fireEvent.click(screen.getByRole('button', { name: 'Tarjeta, completado' }));
+  expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '2');
+  fireEvent.click(screen.getByRole('button', { name: 'Volver' }));
   expect(screen.getByLabelText('Número de tarjeta')).toHaveValue(
     '4111 1111 1111 1111',
   );
-  fireEvent.click(
-    screen.getByRole('button', { name: 'Comprador, completado' }),
-  );
+  fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
   await screen.findByRole('heading', { name: 'Tus datos' });
   const buyerFields: Record<string, string> = {
     'Nombre completo': 'Cliente Prueba',
@@ -422,9 +418,7 @@ it('contratos independientes sin preselección, errores junto a campos y tarjeta
     fireEvent.change(screen.getByLabelText(label), { target: { value } });
   fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
   await screen.findByText('Datos de entrega');
-  expect(
-    screen.getByRole('button', { name: 'Comprador, completado' }),
-  ).toBeEnabled();
+  expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '3');
   expect(
     screen.getByRole('link', { name: 'contrato de pago' }),
   ).toHaveAttribute('href', config.acceptance.policyUrl);

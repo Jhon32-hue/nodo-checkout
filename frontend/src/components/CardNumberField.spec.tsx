@@ -54,7 +54,7 @@ it.each([
   );
 });
 
-it('solicita validación al perder foco y al completar una longitud admitida', () => {
+it('no interrumpe al completar el número y valida únicamente al perder foco', () => {
   const onValidate = jest.fn();
   const store = makeStore();
   render(
@@ -66,9 +66,9 @@ it('solicita validación al perder foco y al completar una longitud admitida', (
   fireEvent.change(input, {
     target: { value: '4242424242424242', selectionStart: 16 },
   });
-  expect(onValidate).toHaveBeenCalled();
+  expect(onValidate).not.toHaveBeenCalled();
   fireEvent.blur(input);
-  expect(onValidate).toHaveBeenCalledTimes(2);
+  expect(onValidate).toHaveBeenCalledTimes(1);
 });
 
 it('acepta pegado, recorta al límite y deja el cursor después del contenido', () => {

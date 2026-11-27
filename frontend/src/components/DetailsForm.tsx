@@ -9,7 +9,6 @@ import CreditCardIcon from '@mui/icons-material/CreditCard';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
-import ButtonBase from '@mui/material/ButtonBase';
 import { formSchema, type FormValues } from '../validation';
 import { CardNumberField } from './CardNumberField';
 import type {
@@ -24,14 +23,6 @@ import type { Flow } from '../state/flow';
 import styles from '../App.module.css';
 
 type Phase = 'card' | 'buyer' | 'delivery';
-const phases: Array<{
-  id: Phase;
-  label: string;
-}> = [
-  { id: 'card', label: 'Tarjeta' },
-  { id: 'buyer', label: 'Comprador' },
-  { id: 'delivery', label: 'Entrega' },
-];
 export type DetailsDraft = {
   buyer?: Buyer;
   delivery?: Delivery;
@@ -64,7 +55,6 @@ export function DetailsForm({
   onDraftChange?: (draft: DetailsDraft) => void;
 }) {
   const [phase, setPhase] = useState<Phase>('card');
-  const [furthestPhase, setFurthestPhase] = useState(0);
   const [optional, setOptional] = useState(false);
   const [config, setConfig] = useState<Config | null>(null);
   const [configError, setConfigError] = useState(false);
@@ -181,10 +171,8 @@ export function DetailsForm({
   };
   const next = async () => {
     if (phase === 'card' && (await trigger(cardNames))) {
-      setFurthestPhase((current) => Math.max(current, 1));
       setPhase('buyer');
     } else if (phase === 'buyer' && (await trigger(buyerNames))) {
-      setFurthestPhase((current) => Math.max(current, 2));
       setPhase('delivery');
     }
   };
@@ -212,29 +200,16 @@ export function DetailsForm({
         else void next();
       }}
     >
-      <nav className={styles.formProgress} aria-label="Pasos del formulario">
-        {phases.map(({ id, label }, index) => (
-          <ButtonBase
-            key={id}
-            type="button"
-            className={styles.formProgressStep}
-            data-state={
-              phase === id
-                ? 'actual'
-                : index <= furthestPhase
-                  ? 'completado'
-                  : 'bloqueado'
-            }
-            aria-current={phase === id ? 'step' : undefined}
-            aria-label={`${label}, ${phase === id ? 'actual' : index <= furthestPhase ? 'completado' : 'bloqueado'}`}
-            disabled={busy || phase === id || index > furthestPhase}
-            onClick={() => setPhase(id)}
-          >
-            <span>{index + 1}</span>
-            <strong>{label}</strong>
-          </ButtonBase>
-        ))}
-      </nav>
+      <div
+        className={styles.formProgressBar}
+        role="progressbar"
+        aria-label={`Paso ${phase === 'card' ? 1 : phase === 'buyer' ? 2 : 3} de 3`}
+        aria-valuemin={1}
+        aria-valuemax={3}
+        aria-valuenow={phase === 'card' ? 1 : phase === 'buyer' ? 2 : 3}
+      >
+        <span data-phase={phase} />
+      </div>
       <div className={styles.stepHeading}>
         {phase === 'card' ? (
           <CreditCardIcon color="primary" />
@@ -255,10 +230,9 @@ export function DetailsForm({
         </div>
       </div>
       {phase === 'card' && (
-        <>
+        <section className={styles.formSection}>
           <p className={styles.muted}>
-            Usa únicamente datos ficticios de prueba. La tarjeta se procesa de
-            forma segura y no se guarda en esta tienda.
+            Usa únicamente datos ficticios de prueba.
           </p>
           <div className={styles.formStack}>
             <Controller
@@ -297,10 +271,10 @@ export function DetailsForm({
               })}
             </div>
           </div>
-        </>
+        </section>
       )}
       {phase === 'buyer' && (
-        <div className={styles.formStack}>
+        <section className={`${styles.formStack} ${styles.formSection}`}>
           {checkout.status !== 'DRAFT' && (
             <p className={styles.muted}>
               Los datos de esta compra reservada no se pueden modificar.
@@ -320,10 +294,10 @@ export function DetailsForm({
             placeholder: '+573001234567',
             maxLength: 16,
           })}
-        </div>
+        </section>
       )}
       {phase === 'delivery' && (
-        <>
+        <section className={styles.formSection}>
           <div className={styles.formStack}>
             {field('delivery.recipientName', 'Nombre de quien recibe', {
               maxLength: 120,
@@ -421,7 +395,7 @@ export function DetailsForm({
               </p>
             )}
           </div>
-        </>
+        </section>
       )}
       <div className={styles.stepActions}>
         {phase !== 'card' && (
@@ -460,9 +434,6 @@ export function DetailsForm({
           ventana o pulsar el botón nuevamente.
         </p>
       )}
-      <p className={styles.security}>
-        La tarjeta y el CVC no se guardan en esta tienda.
-      </p>
     </form>
   );
 }

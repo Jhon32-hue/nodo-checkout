@@ -15,7 +15,11 @@ export function ProductCard({
 }) {
   const [failed, setFailed] = useState(false);
   return (
-    <article className={styles.product}>
+    <article
+      className={`${styles.product} ${
+        p.available === 0 ? styles.productSoldOut : ''
+      }`}
+    >
       <button
         className={styles.productImage}
         aria-label={'Ver detalle de ' + p.name}
@@ -48,7 +52,11 @@ export function ProductCard({
             {p.name}
           </button>
         </h3>
-        <span className={styles.stock}>
+        <span
+          className={`${styles.stock} ${
+            p.available === 0 ? styles.stockSoldOut : ''
+          }`}
+        >
           {p.available > 0 ? `${p.available} disponibles` : 'Agotado'}
         </span>
         <div className={styles.productBottom}>

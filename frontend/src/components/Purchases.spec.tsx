@@ -50,9 +50,11 @@ it('diferencia todos los estados y abre el detalle sin efectos propios', () => {
   render(
     <Purchases
       items={items}
+      products={[]}
       loaded
       busy={false}
       error=""
+      onBack={jest.fn()}
       onRetry={jest.fn()}
       onOpen={onOpen}
     />,
@@ -76,9 +78,11 @@ it('consultar historial o abrir detalle no ejecuta pago ni sincronización', () 
   render(
     <Purchases
       items={[item()]}
+      products={[]}
       loaded
       busy={false}
       error=""
+      onBack={jest.fn()}
       onRetry={retry}
       onOpen={onOpen}
     />,
@@ -95,9 +99,11 @@ it('presenta carga, vacío y error con reintento', () => {
   const { rerender } = render(
     <Purchases
       items={[]}
+      products={[]}
       loaded={false}
       busy
       error=""
+      onBack={jest.fn()}
       onRetry={retry}
       onOpen={jest.fn()}
     />,
@@ -108,22 +114,25 @@ it('presenta carga, vacío y error con reintento', () => {
   rerender(
     <Purchases
       items={[]}
+      products={[]}
       loaded
       busy={false}
       error=""
+      onBack={jest.fn()}
       onRetry={retry}
       onOpen={jest.fn()}
     />,
   );
-  expect(screen.getByText(/Aún no hay compras/)).toHaveTextContent(
-    'Explora los productos',
-  );
+  expect(screen.getByText(/Aún no hay compras/)).toBeInTheDocument();
+  expect(screen.getByText(/Explora los productos/)).toBeInTheDocument();
   rerender(
     <Purchases
       items={[]}
+      products={[]}
       loaded
       busy={false}
       error="No fue posible consultar"
+      onBack={jest.fn()}
       onRetry={retry}
       onOpen={jest.fn()}
     />,
