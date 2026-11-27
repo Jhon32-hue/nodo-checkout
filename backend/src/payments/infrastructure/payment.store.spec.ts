@@ -93,8 +93,8 @@ function fixture(row = attempt(), held = reservation(), stock = 10) {
       .fn<Promise<TransactionOrmEntity | null>, []>()
       .mockResolvedValueOnce(row),
   };
-  query.innerJoin.mockReturnValue(query);
-  query.where.mockReturnValue(query);
+  query.innerJoin.mockImplementation(unexpected).mockReturnValueOnce(query);
+  query.where.mockImplementation(unexpected).mockReturnValueOnce(query);
   const methods = {
     createQueryBuilder: jest
       .fn<unknown, unknown[]>()
@@ -593,6 +593,8 @@ describe('TypeOrmPaymentStore', () => {
     f.snapshot();
     f.transaction.mockImplementationOnce(f.executeTransaction);
     f.createQueryBuilder.mockReturnValueOnce(f.query);
+    f.query.innerJoin.mockReturnValueOnce(f.query);
+    f.query.where.mockReturnValueOnce(f.query);
     f.query.getOne.mockResolvedValueOnce(row);
     f.locked();
     f.findOneByOrFail.mockResolvedValueOnce(row);

@@ -126,17 +126,22 @@ function fixture() {
       return target[key];
     },
   });
-  for (const method of [
-    query.innerJoin,
-    query.leftJoin,
-    query.select,
-    query.addSelect,
-    query.where,
-    query.andWhere,
-    query.orderBy,
-    query.addOrderBy,
-  ])
-    method.mockReturnValue(builder);
+  for (const [name, method] of Object.entries({
+    innerJoin: query.innerJoin,
+    leftJoin: query.leftJoin,
+    select: query.select,
+    addSelect: query.addSelect,
+    where: query.where,
+    andWhere: query.andWhere,
+    orderBy: query.orderBy,
+    addOrderBy: query.addOrderBy,
+  })) {
+    method.mockImplementation(unexpected);
+    const allowedCalls =
+      name === 'addSelect' ? 12 : name === 'andWhere' ? 2 : 1;
+    for (let call = 0; call < allowedCalls; call++)
+      method.mockReturnValueOnce(builder);
+  }
   const methods = {
     findOne: jest
       .fn<Promise<unknown>, unknown[]>()
