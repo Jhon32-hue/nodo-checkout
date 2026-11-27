@@ -60,7 +60,12 @@ it('conecta catálogo, compra, resumen y resultado con Redux sin pagar por monta
       target: { value: 'producto inexistente' },
     },
   );
-  expect(screen.getByText(/No encontramos productos/)).toBeInTheDocument();
+  const searchbox = screen.getByRole('searchbox', {
+    name: 'Buscar productos',
+  });
+  searchbox.focus();
+  expect(screen.getByText(/No encontramos productos/)).not.toHaveFocus();
+  expect(searchbox).toHaveFocus();
   expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
   fireEvent.submit(screen.getByRole('searchbox').closest('form')!);
   await waitFor(() =>
@@ -69,11 +74,22 @@ it('conecta catálogo, compra, resumen y resultado con Redux sin pagar por monta
       block: 'start',
     }),
   );
-  expect(screen.getByText('0 productos encontrados.')).toBeInTheDocument();
+  const emptyResults = screen.getByText(
+    'No encontramos productos para esta búsqueda.',
+  );
+  expect(emptyResults).toHaveFocus();
+  expect(
+    screen.queryByText('0 productos encontrados.'),
+  ).not.toBeInTheDocument();
+  expect(searchbox).toHaveValue('producto inexistente');
+  expect(f.begin).not.toHaveBeenCalled();
+  expect(f.confirm).not.toHaveBeenCalled();
+  expect(f.sync).not.toHaveBeenCalled();
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     value: jest.fn().mockReturnValue({ matches: true }),
   });
+  fireEvent.change(searchbox, { target: { value: product.name } });
   fireEvent.click(screen.getByRole('button', { name: 'Buscar' }));
   await waitFor(() =>
     expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({
@@ -81,6 +97,14 @@ it('conecta catálogo, compra, resumen y resultado con Redux sin pagar por monta
       block: 'start',
     }),
   );
+  expect(
+    screen.getByRole('heading', { name: 'Todos los productos' }),
+  ).toHaveFocus();
+  expect(screen.getByText('1 producto encontrado.')).toBeInTheDocument();
+  expect(searchbox).toHaveValue(product.name);
+  expect(f.begin).not.toHaveBeenCalled();
+  expect(f.confirm).not.toHaveBeenCalled();
+  expect(f.sync).not.toHaveBeenCalled();
   fireEvent.change(
     screen.getByRole('searchbox', { name: 'Buscar productos' }),
     { target: { value: '' } },

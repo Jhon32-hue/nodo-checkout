@@ -41,6 +41,8 @@ export function App({ flow }: { flow: Flow }) {
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [search, setSearch] = useState('');
   const productsSectionRef = useRef<HTMLElement>(null);
+  const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const emptyResultsRef = useRef<HTMLParagraphElement>(null);
   const [searchAnnouncement, setSearchAnnouncement] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -156,16 +158,26 @@ export function App({ flow }: { flow: Flow }) {
   const submitSearch = () => {
     setHistoryOpen(false);
     dispatch(actions.selectedProduct(null));
-    setSearchAnnouncement(`${visibleProducts.length} productos encontrados.`);
-    window.requestAnimationFrame(() =>
+    const hasResults = visibleProducts.length > 0;
+    setSearchAnnouncement(
+      hasResults
+        ? `${visibleProducts.length} ${visibleProducts.length === 1 ? 'producto encontrado' : 'productos encontrados'}.`
+        : '',
+    );
+    window.requestAnimationFrame(() => {
       productsSectionRef.current?.scrollIntoView({
         behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)')
           .matches
           ? 'instant'
           : 'smooth',
         block: 'start',
-      }),
-    );
+      });
+      (hasResults ? resultsHeadingRef.current : emptyResultsRef.current)?.focus(
+        {
+          preventScroll: true,
+        },
+      );
+    });
   };
   return (
     <>
@@ -384,7 +396,7 @@ export function App({ flow }: { flow: Flow }) {
                 <div className={shopStyles.sectionHeading}>
                   <div>
                     <span className={shopStyles.kicker}>SELECCIÓN NODO</span>
-                    <h2>
+                    <h2 ref={resultsHeadingRef} tabIndex={-1}>
                       {category === 'all'
                         ? 'Todos los productos'
                         : categoryNames[category]}
@@ -482,8 +494,12 @@ export function App({ flow }: { flow: Flow }) {
                 {!s.busy &&
                   s.products.length > 0 &&
                   visibleProducts.length === 0 && (
-                    <p className={shopStyles.emptyFilter}>
-                      No encontramos productos con estos filtros.{' '}
+                    <p
+                      ref={emptyResultsRef}
+                      className={shopStyles.emptyFilter}
+                      tabIndex={-1}
+                    >
+                      No encontramos productos para esta búsqueda.{' '}
                       <button
                         type="button"
                         onClick={() => {

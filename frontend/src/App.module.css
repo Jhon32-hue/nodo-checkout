@@ -2056,6 +2056,61 @@
     height: 190px;
   }
 }
+@media (orientation: landscape) and (max-height: 500px) {
+  .cartDrawer {
+    width: min(520px, 100vw);
+    padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+  }
+  .drawerHeader {
+    top: -12px;
+    padding-top: 0;
+  }
+  .drawerHeader h2 {
+    margin: 0 0 4px;
+  }
+  .cartDrawer > .muted {
+    margin: 8px 0;
+  }
+  .cartItems {
+    gap: 8px;
+    margin: 4px 0 12px;
+  }
+  .cartItem {
+    display: grid;
+    grid-template-areas:
+      'product controls'
+      'product action';
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 1.25fr);
+    column-gap: 12px;
+    padding: 10px;
+  }
+  .cartLine {
+    grid-area: product;
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 8px;
+    margin: 0;
+  }
+  .cartThumb {
+    width: 64px;
+    height: 64px;
+  }
+  .cartControls {
+    grid-area: controls;
+    margin-top: 0;
+  }
+  .cartItemFooter {
+    grid-area: action;
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+  .cartItemFooter button {
+    min-height: 44px;
+  }
+  .cartTotal {
+    margin-top: 12px;
+    padding: 14px 0;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .formProgressBar span,
   .cartItem {
