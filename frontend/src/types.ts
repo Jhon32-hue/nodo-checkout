@@ -55,6 +55,9 @@ export interface Attempt {
   reservationStatus?: string;
   reservationExpired?: boolean;
   deliveryId: string | null;
+  reference?: string;
+  createdAt?: string;
+  finalizedAt?: string | null;
   summary?: Summary;
 }
 export interface PurchaseHistoryItem {

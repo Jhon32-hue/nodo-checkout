@@ -2,44 +2,58 @@ import { useEffect, useState } from 'react';
 import type { Attempt } from '../types';
 import type { Flow } from '../state/flow';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutlined';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import HighlightOffIcon from '@mui/icons-material/HighlightOff';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
+import HourglassTopIcon from '@mui/icons-material/HourglassTop';
 import styles from '../App.module.css';
 export function paymentPresentation(t: Attempt) {
   if (t.status === 'APPROVED')
     return {
-      title: 'Compra aprobada',
-      body: 'El pago fue verificado. Tu entrega está lista y el inventario actualizado.',
-      symbol: '✓',
+      title: 'Compra confirmada',
+      body: 'El pago fue verificado. Registramos tu pedido y actualizamos las existencias.',
+      tone: 'success',
+    };
+  if (t.status === 'DECLINED')
+    return {
+      title: 'Pago rechazado',
+      body: 'El pago fue rechazado y la reserva se liberó. Puedes volver a productos e iniciar una compra nueva.',
+      tone: 'error',
+    };
+  if (t.status === 'VOIDED')
+    return {
+      title: 'Pago anulado',
+      body: 'El pago fue anulado y la compra no se completó. No se descontaron existencias.',
+      tone: 'error',
+    };
+  if (t.status === 'ERROR')
+    return {
+      title: 'No pudimos completar el pago',
+      body: 'Ocurrió un problema al procesar la operación. La compra no fue confirmada.',
+      tone: 'error',
     };
   if (t.status === 'EXPIRED')
     return {
       title: 'Reserva vencida',
       body: 'La reserva terminó antes de enviar el pago. Puedes volver a elegir tu producto.',
-      symbol: '↺',
-    };
-  if (t.status !== 'PENDING')
-    return {
-      title: 'Pago no aprobado',
-      body: 'El proveedor confirmó el resultado negativo. No se descontaron existencias ni se creó una entrega.',
-      symbol: '×',
+      tone: 'error',
     };
   if (t.dispatchStatus === 'UNKNOWN' || t.dispatchStatus === 'IN_FLIGHT')
     return {
       title: 'Resultado incierto',
-      body: 'No hay confirmación suficiente del proveedor. Conservamos tu compra y su reserva. No vuelvas a pagar; requiere consulta o revisión.',
-      symbol: '?',
+      body: 'Aún no hay una confirmación suficiente. Conservamos la compra y su reserva: consulta el estado y no vuelvas a pagar.',
+      tone: 'warning',
     };
   if (t.dispatchStatus === 'NOT_SENT')
     return {
-      title: 'Pago aún no enviado',
-      body: 'El intento está creado, pero no se ha enviado. Recupera la compra e introduce la tarjeta otra vez.',
-      symbol: '→',
+      title: 'Pago preparado',
+      body: 'El intento está creado, pero aún no se ha enviado. Puedes recuperar la compra e introducir la tarjeta nuevamente.',
+      tone: 'warning',
     };
   return {
-    title: 'Pago pendiente',
-    body: 'Estamos esperando la confirmación de Wompi. No vuelvas a enviar el pago.',
-    symbol: '…',
+    title: 'Estamos verificando el pago',
+    body: 'La operación fue enviada y estamos esperando su confirmación. No vuelvas a realizar el pago.',
+    tone: 'warning',
   };
 }
 export function Result({
@@ -52,12 +66,7 @@ export function Result({
   busy: boolean;
 }) {
   const view = paymentPresentation(attempt);
-  const tone =
-    attempt.status === 'APPROVED'
-      ? 'success'
-      : attempt.status === 'PENDING'
-        ? 'warning'
-        : 'error';
+  const tone = view.tone;
   const [stopped, setStopped] = useState(false);
   useEffect(() => {
     let cancelled = false;
@@ -93,21 +102,45 @@ export function Result({
       >
         {tone === 'success' ? (
           <CheckCircleOutlineIcon fontSize="large" />
+        ) : attempt.status === 'PENDING' &&
+          !['UNKNOWN', 'IN_FLIGHT'].includes(attempt.dispatchStatus) ? (
+          <HourglassTopIcon fontSize="large" />
         ) : tone === 'warning' ? (
           <HelpOutlineIcon fontSize="large" />
+        ) : attempt.status === 'ERROR' ? (
+          <ErrorOutlineIcon fontSize="large" />
         ) : (
           <HighlightOffIcon fontSize="large" />
         )}
       </div>
-      <span className={styles.eyebrow}>ESTADO CONSULTADO EN NUESTRA API</span>
+      <span className={styles.eyebrow}>ESTADO DE TU COMPRA</span>
       <h2>{view.title}</h2>
-      <p>{view.body}</p>
-      <code>Compra · {attempt.checkoutId}</code>
-      <code>Intento de pago · {attempt.id}</code>
+      <p aria-live="polite">{view.body}</p>
+      <div className={styles.resultReference}>
+        <span>Referencia de compra</span>
+        <strong>
+          {attempt.reference ?? 'Disponible al consultar el detalle'}
+        </strong>
+      </div>
+      <details className={styles.resultTechnical}>
+        <summary>Identificadores técnicos</summary>
+        <div>
+          <span>Compra</span>
+          <code>{attempt.checkoutId}</code>
+        </div>
+        <div>
+          <span>Intento de pago</span>
+          <code>{attempt.id}</code>
+        </div>
+        {attempt.deliveryId && (
+          <div>
+            <span>Registro de entrega</span>
+            <code>{attempt.deliveryId}</code>
+          </div>
+        )}
+      </details>
       {attempt.deliveryId && (
-        <p>
-          Entrega lista: <code>{attempt.deliveryId}</code>
-        </p>
+        <p>Registramos la información necesaria para gestionar la entrega.</p>
       )}
       {stopped && attempt.status === 'PENDING' && (
         <p role="status">

@@ -210,12 +210,15 @@ it.each([
     paymentPresentation({ ...attempt, status, dispatchStatus: 'SUBMITTED' })
       .title,
   );
-  expect(
-    screen.getByText(`Compra · ${attempt.checkoutId}`),
-  ).toBeInTheDocument();
-  expect(
-    screen.getByText(`Intento de pago · ${attempt.id}`),
-  ).toBeInTheDocument();
+  expect(screen.getByText('Referencia de compra')).toBeInTheDocument();
+  expect(screen.getByText(attempt.reference!)).toBeInTheDocument();
+  fireEvent.click(screen.getByText('Identificadores técnicos'));
+  expect(screen.getByText(attempt.checkoutId)).toBeInTheDocument();
+  expect(screen.getByText(attempt.id)).toBeInTheDocument();
+  if (status === 'APPROVED') {
+    expect(screen.getByText(/gestionar la entrega/)).toBeInTheDocument();
+    expect(screen.queryByText(/entrega lista/i)).not.toBeInTheDocument();
+  }
   fireEvent.click(screen.getByText(/Volver a los productos/));
   expect(f.back).toHaveBeenCalled();
 });
@@ -232,6 +235,7 @@ it('UNKNOWN no consulta automáticamente ni ofrece reenviar un cobro', async () 
   await act(async () => jest.advanceTimersByTime(300000));
   expect(f.sync).not.toHaveBeenCalled();
   expect(screen.getByText('Resultado incierto')).toBeInTheDocument();
+  expect(screen.queryByText(/volver a pagar/i)).not.toBeInTheDocument();
   fireEvent.click(screen.getByText('Consultar estado'));
   expect(f.sync).toHaveBeenCalledTimes(1);
   jest.useRealTimers();

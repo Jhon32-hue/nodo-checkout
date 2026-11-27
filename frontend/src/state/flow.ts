@@ -325,11 +325,27 @@ export class Flow {
       this.store.dispatch(actions.attempt(t));
       this.save('result');
       try {
-        this.store.dispatch(
-          actions.attempt(
-            await this.api.pay(t.id, this.token, this.config, this.consent),
-          ),
+        const paid = await this.api.pay(
+          t.id,
+          this.token,
+          this.config,
+          this.consent,
         );
+        this.store.dispatch(actions.attempt(paid));
+        try {
+          const details = await this.api.attempt(t.id);
+          this.store.dispatch(
+            actions.attempt({
+              ...paid,
+              reference: details.reference,
+              createdAt: details.createdAt,
+              finalizedAt: details.finalizedAt,
+              summary: details.summary ?? paid.summary,
+            }),
+          );
+        } catch {
+          /* The confirmed result remains visible if the read-only detail fails. */
+        }
       } catch (error) {
         try {
           this.store.dispatch(actions.attempt(await this.api.attempt(t.id)));

@@ -1,15 +1,51 @@
 import type { PurchaseHistoryItem } from '../types';
+import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutlined';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
+import HourglassTopIcon from '@mui/icons-material/HourglassTop';
+import Skeleton from '@mui/material/Skeleton';
 import styles from '../App.module.css';
 
 export function purchaseStatus(item: PurchaseHistoryItem) {
   if (item.status === 'APPROVED')
-    return { label: 'Aprobada', tone: 'success' } as const;
+    return { label: 'Confirmada', tone: 'success', icon: 'approved' } as const;
   if (item.status === 'PENDING') {
     if (['UNKNOWN', 'IN_FLIGHT'].includes(item.dispatchStatus))
-      return { label: 'Resultado incierto', tone: 'warning' } as const;
-    return { label: 'Pendiente', tone: 'warning' } as const;
+      return {
+        label: 'Resultado incierto',
+        tone: 'warning',
+        icon: 'unknown',
+      } as const;
+    return {
+      label: 'Verificando pago',
+      tone: 'warning',
+      icon: 'pending',
+    } as const;
   }
-  return { label: 'No aprobada', tone: 'error' } as const;
+  if (item.status === 'DECLINED')
+    return { label: 'Rechazada', tone: 'error', icon: 'declined' } as const;
+  if (item.status === 'VOIDED')
+    return { label: 'Anulada', tone: 'error', icon: 'declined' } as const;
+  if (item.status === 'EXPIRED')
+    return {
+      label: 'Reserva vencida',
+      tone: 'error',
+      icon: 'declined',
+    } as const;
+  return { label: 'Error de pago', tone: 'error', icon: 'error' } as const;
+}
+
+function StatusIcon({
+  icon,
+}: {
+  icon: ReturnType<typeof purchaseStatus>['icon'];
+}) {
+  if (icon === 'approved') return <CheckCircleOutlineIcon fontSize="inherit" />;
+  if (icon === 'pending') return <HourglassTopIcon fontSize="inherit" />;
+  if (icon === 'unknown') return <HelpOutlineIcon fontSize="inherit" />;
+  if (icon === 'error') return <ErrorOutlineIcon fontSize="inherit" />;
+  return <CancelOutlinedIcon fontSize="inherit" />;
 }
 
 const money = new Intl.NumberFormat('es-CO', {
@@ -40,7 +76,17 @@ export function Purchases({
         Se muestran únicamente los intentos asociados a esta sesión invitada.
         Perder o vencer la cookie impide recuperarlos desde este navegador.
       </p>
-      {busy && !loaded && <p role="status">Consultando tus compras…</p>}
+      {busy && !loaded && (
+        <div
+          className={styles.historySkeletons}
+          role="status"
+          aria-label="Consultando tus compras"
+        >
+          {[0, 1, 2].map((position) => (
+            <Skeleton key={position} variant="rounded" height={112} />
+          ))}
+        </div>
+      )}
       {error && (
         <div className={styles.error} role="alert">
           {error}
@@ -51,7 +97,8 @@ export function Purchases({
       )}
       {!busy && loaded && !error && items.length === 0 && (
         <p className={styles.historyEmpty}>
-          Aún no hay compras en esta sesión.
+          Aún no hay compras en esta sesión. Explora los productos para iniciar
+          tu primera compra.
         </p>
       )}
       <div className={styles.historyList}>
@@ -63,6 +110,7 @@ export function Purchases({
                 <span
                   className={`${styles.historyStatus} ${styles[state.tone]}`}
                 >
+                  <StatusIcon icon={state.icon} />
                   {state.label}
                 </span>
                 <h4>{item.productName}</h4>

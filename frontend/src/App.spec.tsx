@@ -70,7 +70,7 @@ it('conecta catálogo, compra, resumen y resultado con Redux sin pagar por monta
     store.dispatch(actions.attempt({ ...attempt, status: 'APPROVED' }));
     store.dispatch(actions.step('result'));
   });
-  expect(screen.getByText('Compra aprobada')).toBeInTheDocument();
+  expect(screen.getByText('Compra confirmada')).toBeInTheDocument();
   await act(async () => {
     store.dispatch(actions.error('Error sanitizado'));
     store.dispatch(actions.step('catalog'));

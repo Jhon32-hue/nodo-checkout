@@ -58,6 +58,7 @@ export const attempt: Attempt = {
   reservationExpiresAt: '2030-01-01T00:00:00Z',
   reservationStatus: 'HELD',
   deliveryId: null,
+  reference: 'pc_fixture',
   summary,
 };
 export const config: Config = {

@@ -19,7 +19,7 @@ const item = (
   ...change,
 });
 
-it('diferencia estados y abre el detalle sin efectos propios', () => {
+it('diferencia todos los estados y abre el detalle sin efectos propios', () => {
   const onOpen = jest.fn();
   const items = [
     item(),
@@ -28,6 +28,23 @@ it('diferencia estados y abre el detalle sin efectos propios', () => {
       id: '66666666-6666-4666-8666-666666666666',
       status: 'PENDING',
       dispatchStatus: 'UNKNOWN',
+    }),
+    item({
+      id: '77777777-7777-4777-8777-777777777777',
+      status: 'ERROR',
+    }),
+    item({
+      id: '88888888-8888-4888-8888-888888888888',
+      status: 'VOIDED',
+    }),
+    item({
+      id: '99999999-9999-4999-8999-999999999999',
+      status: 'EXPIRED',
+    }),
+    item({
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      status: 'PENDING',
+      dispatchStatus: 'SUBMITTED',
     }),
   ];
   render(
@@ -40,13 +57,37 @@ it('diferencia estados y abre el detalle sin efectos propios', () => {
       onOpen={onOpen}
     />,
   );
-  expect(screen.getByText('Aprobada')).toBeInTheDocument();
-  expect(screen.getByText('No aprobada')).toBeInTheDocument();
+  expect(screen.getByText('Confirmada')).toBeInTheDocument();
+  expect(screen.getByText('Rechazada')).toBeInTheDocument();
   expect(screen.getByText('Resultado incierto')).toBeInTheDocument();
-  expect(screen.getAllByText('$ 191.400')).toHaveLength(3);
+  expect(screen.getByText('Error de pago')).toBeInTheDocument();
+  expect(screen.getByText('Anulada')).toBeInTheDocument();
+  expect(screen.getByText('Reserva vencida')).toBeInTheDocument();
+  expect(screen.getByText('Verificando pago')).toBeInTheDocument();
+  expect(screen.getAllByText('$ 191.400')).toHaveLength(7);
   fireEvent.click(screen.getAllByRole('button', { name: 'Ver detalle' })[0]);
   expect(onOpen).toHaveBeenCalledWith(items[0]);
   expect(purchaseStatus(item({ status: 'PENDING' })).tone).toBe('warning');
+});
+
+it('consultar historial o abrir detalle no ejecuta pago ni sincronización', () => {
+  const onOpen = jest.fn();
+  const retry = jest.fn();
+  render(
+    <Purchases
+      items={[item()]}
+      loaded
+      busy={false}
+      error=""
+      onRetry={retry}
+      onOpen={onOpen}
+    />,
+  );
+  expect(retry).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Ver detalle' }));
+  expect(onOpen).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText(/pagar/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/sincronizar/i)).not.toBeInTheDocument();
 });
 
 it('presenta carga, vacío y error con reintento', () => {
@@ -61,7 +102,9 @@ it('presenta carga, vacío y error con reintento', () => {
       onOpen={jest.fn()}
     />,
   );
-  expect(screen.getByRole('status')).toHaveTextContent('Consultando');
+  expect(
+    screen.getByRole('status', { name: 'Consultando tus compras' }),
+  ).toBeInTheDocument();
   rerender(
     <Purchases
       items={[]}
@@ -72,7 +115,9 @@ it('presenta carga, vacío y error con reintento', () => {
       onOpen={jest.fn()}
     />,
   );
-  expect(screen.getByText(/Aún no hay compras/)).toBeInTheDocument();
+  expect(screen.getByText(/Aún no hay compras/)).toHaveTextContent(
+    'Explora los productos',
+  );
   rerender(
     <Purchases
       items={[]}
