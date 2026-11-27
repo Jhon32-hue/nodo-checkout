@@ -8,6 +8,7 @@ it('conecta catálogo, compra, resumen y resultado con Redux sin pagar por monta
   const store = makeStore();
   const f = {
     initialize: jest.fn(),
+    checkoutDraft: jest.fn().mockReturnValue(null),
     begin: jest.fn(),
     recover: jest.fn(),
     history: jest.fn(),
@@ -100,6 +101,7 @@ it('carrito pide confirmar reemplazo y no inicia checkout al agregar', async () 
   };
   const f = {
     initialize: jest.fn(),
+    checkoutDraft: jest.fn().mockReturnValue(null),
     begin: jest.fn(),
     configuration: jest.fn().mockResolvedValue(config),
   } as unknown as Flow;
@@ -142,6 +144,7 @@ it('filtra localmente por categoría, permite volver a todos y agrega desde la t
   };
   const f = {
     initialize: jest.fn(),
+    checkoutDraft: jest.fn().mockReturnValue(null),
     begin: jest.fn(),
   } as unknown as Flow;
   render(
@@ -190,7 +193,11 @@ it('filtra localmente por categoría, permite volver a todos y agrega desde la t
 
 it('muestra navegación móvil accesible y conserva el aviso de compra sin abrir tarjeta', async () => {
   const store = makeStore();
-  const f = { initialize: jest.fn(), recover: jest.fn() } as unknown as Flow;
+  const f = {
+    initialize: jest.fn(),
+    recover: jest.fn(),
+    checkoutDraft: jest.fn().mockReturnValue(null),
+  } as unknown as Flow;
   render(
     <Provider store={store}>
       <App flow={f} />
@@ -214,4 +221,38 @@ it('muestra navegación móvil accesible y conserva el aviso de compra sin abrir
   );
   fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
   expect(f.recover).toHaveBeenCalledTimes(1);
+});
+
+it('informa el progreso inaccesible y conserva el carrito para iniciar otra compra', async () => {
+  localStorage.clear();
+  const store = makeStore();
+  const f = {
+    initialize: jest.fn(),
+    begin: jest.fn(),
+    checkoutDraft: jest.fn().mockReturnValue(null),
+  } as unknown as Flow;
+  render(
+    <Provider store={store}>
+      <App flow={f} />
+    </Provider>,
+  );
+  await act(async () => {
+    store.dispatch(actions.products([product]));
+    store.dispatch(actions.cart({ productId: product.id, quantity: 1 }));
+    store.dispatch(
+      actions.recoveryWarning(
+        'No pudimos recuperar una compra anterior porque pertenece a otra sesión o la sesión venció. La compra permanece registrada. Puedes iniciar una nueva compra.',
+      ),
+    );
+  });
+
+  expect(store.getState().cart).toEqual({
+    productId: product.id,
+    quantity: 1,
+  });
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Iniciar una nueva compra' }),
+  );
+  expect(f.begin).toHaveBeenCalledWith(product.id, 1);
+  expect(f.confirm).toBeUndefined();
 });

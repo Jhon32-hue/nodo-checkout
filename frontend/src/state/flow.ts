@@ -7,17 +7,27 @@ import type {
   Card,
   Config,
   Consent,
+  Checkout,
+  PublicCheckout,
   PurchaseHistoryItem,
   Step,
 } from '../types';
 import { message, quantityValid } from '../validation';
 export class Flow {
+  private static readonly INACCESSIBLE_PURCHASE_MESSAGE =
+    'No pudimos recuperar una compra anterior porque pertenece a otra sesión o la sesión venció. La compra permanece registrada. Puedes iniciar una nueva compra.';
   private locked = false;
   private progress: Progress;
+  private inaccessibleProgress: Progress | null = null;
   private token: string | null = null;
   private card: Card | null = null;
   private config: Config | null = null;
   private consent: Consent = { policy: false, personal: false };
+  private personalDraft: {
+    checkoutId: string;
+    buyer?: Buyer;
+    delivery?: Delivery;
+  } | null = null;
   constructor(
     private store: Store,
     private api: Api,
@@ -50,6 +60,59 @@ export class Flow {
     this.card = null;
     this.config = null;
     this.consent = { policy: false, personal: false };
+  }
+  private isInaccessible(error: unknown) {
+    return (
+      error instanceof ApiError &&
+      ['RESOURCE_NOT_FOUND', 'SESSION_REQUIRED', 'UNAUTHORIZED'].includes(
+        error.code,
+      )
+    );
+  }
+  private markProgressInaccessible() {
+    this.inaccessibleProgress = { ...this.progress };
+    this.personalDraft = null;
+    this.store.dispatch(actions.checkout(null));
+    this.store.dispatch(actions.summary(null));
+    this.store.dispatch(actions.attempt(null));
+    this.store.dispatch(
+      actions.recoveryWarning(Flow.INACCESSIBLE_PURCHASE_MESSAGE),
+    );
+  }
+  private discardInaccessiblePointer() {
+    if (!this.inaccessibleProgress) return;
+    this.inaccessibleProgress = null;
+    this.progress = { step: 'catalog' };
+    saveProgress(this.progress, this.storage);
+    this.store.dispatch(actions.checkout(null));
+    this.store.dispatch(actions.summary(null));
+    this.store.dispatch(actions.attempt(null));
+    this.store.dispatch(actions.recoveryWarning(''));
+  }
+  private publishCheckout(value: Checkout | PublicCheckout) {
+    const full = value as Partial<Checkout> & PublicCheckout;
+    if (full.buyer || full.delivery) {
+      this.personalDraft = {
+        checkoutId: value.id,
+        ...(full.buyer ? { buyer: full.buyer } : {}),
+        ...(full.delivery ? { delivery: full.delivery } : {}),
+      };
+    }
+    const publicCheckout: PublicCheckout = {
+      id: value.id,
+      productId: value.productId,
+      quantity: value.quantity,
+      status: value.status,
+      activeTransactionId: value.activeTransactionId,
+      latestTransactionId: value.latestTransactionId,
+      deliveryId: value.deliveryId,
+    };
+    this.store.dispatch(actions.checkout(publicCheckout));
+  }
+  checkoutDraft(checkoutId: string) {
+    return this.personalDraft?.checkoutId === checkoutId
+      ? this.personalDraft
+      : null;
   }
   navigation(target: Step): {
     enabled: boolean;
@@ -113,15 +176,20 @@ export class Flow {
       }
       if (this.progress.checkoutId) {
         await this.api.session();
-        await this.restore();
-        this.save('catalog');
+        try {
+          await this.restore();
+          this.save('catalog');
+        } catch (error) {
+          if (!this.isInaccessible(error)) throw error;
+          this.markProgressInaccessible();
+        }
       }
       if (catalogError) throw catalogError;
     });
   }
   private async restore() {
     const c = await this.api.checkout(this.progress.checkoutId!);
-    this.store.dispatch(actions.checkout(c));
+    this.publishCheckout(c);
     const id =
       this.progress.transactionId ??
       c.activeTransactionId ??
@@ -147,11 +215,19 @@ export class Flow {
   }
   async begin(productId: string, quantity: number) {
     await this.run(async () => {
-      const s = this.store.getState();
+      this.discardInaccessiblePointer();
+      let s = this.store.getState();
       if (this.progress.checkoutId && !s.checkout) {
         await this.api.session();
-        await this.restore();
-        return;
+        try {
+          await this.restore();
+          return;
+        } catch (error) {
+          if (!this.isInaccessible(error)) throw error;
+          this.markProgressInaccessible();
+          this.discardInaccessiblePointer();
+          s = this.store.getState();
+        }
       }
       if (s.attempt?.status === 'PENDING') {
         this.save('result');
@@ -171,7 +247,7 @@ export class Flow {
           : await this.api.createCheckout(productId, quantity);
       this.progress = { checkoutId: c.id, step: 'details' };
       this.store.dispatch(actions.attempt(null));
-      this.store.dispatch(actions.checkout(c));
+      this.publishCheckout(c);
       this.store.dispatch(actions.summary(null));
       this.save('details');
     });
@@ -193,9 +269,8 @@ export class Flow {
       if (!consent.policy || !consent.personal)
         throw new ApiError('INVALID_ACCEPTANCE');
       if (c.status === 'DRAFT')
-        this.store.dispatch(
-          actions.checkout(await this.api.patch(c.id, buyer, delivery)),
-        );
+        this.publishCheckout(await this.api.patch(c.id, buyer, delivery));
+      this.personalDraft = { checkoutId: c.id, buyer, delivery };
       const config = this.config;
       if (!config) throw new ApiError('GATEWAY_UNAVAILABLE');
       this.card = card;
@@ -274,10 +349,19 @@ export class Flow {
     });
   }
   async history() {
-    await this.run(async () => {
+    if (this.locked) return;
+    this.locked = true;
+    this.store.dispatch(actions.busy(true));
+    this.store.dispatch(actions.historyError(''));
+    try {
       await this.api.session();
       this.store.dispatch(actions.purchases(await this.api.purchases()));
-    });
+    } catch (error) {
+      this.store.dispatch(actions.historyError(message(error)));
+    } finally {
+      this.locked = false;
+      this.store.dispatch(actions.busy(false));
+    }
   }
   async openPurchase(item: PurchaseHistoryItem) {
     await this.run(async () => {
@@ -291,7 +375,7 @@ export class Flow {
         transactionId: attempt.id,
         step: 'result',
       };
-      this.store.dispatch(actions.checkout(checkout));
+      this.publishCheckout(checkout);
       this.store.dispatch(actions.attempt(attempt));
       this.store.dispatch(actions.summary(attempt.summary ?? null));
       this.save('result');

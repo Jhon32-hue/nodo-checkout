@@ -54,6 +54,8 @@ export function App({ flow }: { flow: Flow }) {
   const notice = useSelector((s: State) => s.notice);
   const purchases = useSelector((s: State) => s.purchases);
   const historyLoaded = useSelector((s: State) => s.historyLoaded);
+  const historyError = useSelector((s: State) => s.historyError);
+  const recoveryWarning = useSelector((s: State) => s.recoveryWarning);
   const s = { products, checkout, summary, attempt, step, busy, error };
   useEffect(() => {
     void flow.initialize();
@@ -69,6 +71,12 @@ export function App({ flow }: { flow: Flow }) {
       document.getElementById('product-title')?.focus();
     }
   }, [selectedProductId]);
+  const checkoutDraft =
+    draft && draft.checkoutId === checkout?.id
+      ? draft
+      : checkout
+        ? (flow.checkoutDraft(checkout.id) ?? undefined)
+        : undefined;
   const product = s.products.find((p) => p.id === s.checkout?.productId);
   const selected = s.products.find((p) => p.id === selectedProductId);
   const cartProduct = s.products.find((p) => p.id === cart?.productId);
@@ -220,6 +228,21 @@ export function App({ flow }: { flow: Flow }) {
           }}
           slotProps={{ content: { role: 'status' } }}
         />
+        {recoveryWarning && (
+          <div className={styles.error} role="alert">
+            {recoveryWarning}
+            {cart && (
+              <button
+                type="button"
+                className={styles.textButton}
+                disabled={s.busy}
+                onClick={() => void flow.begin(cart.productId, cart.quantity)}
+              >
+                Iniciar una nueva compra
+              </button>
+            )}
+          </div>
+        )}
         {s.error && (
           <div className={styles.error} role="alert">
             {s.error}
@@ -422,7 +445,7 @@ export function App({ flow }: { flow: Flow }) {
             items={purchases}
             loaded={historyLoaded}
             busy={busy}
-            error={error}
+            error={historyError}
             onRetry={() => void flow.history()}
             onOpen={(item) => {
               setHistoryOpen(false);
@@ -459,16 +482,10 @@ export function App({ flow }: { flow: Flow }) {
               checkout={s.checkout}
               flow={flow}
               busy={s.busy}
-              draft={draft?.checkoutId === s.checkout.id ? draft : undefined}
+              draft={checkoutDraft}
               onDraftChange={(value) => {
                 setDraft({ checkoutId: s.checkout!.id, ...value });
-                if (
-                  JSON.stringify(value.buyer) !==
-                    JSON.stringify(s.checkout?.buyer) ||
-                  JSON.stringify(value.delivery) !==
-                    JSON.stringify(s.checkout?.delivery)
-                )
-                  flow.invalidateSummary();
+                flow.invalidateSummary();
               }}
             />
           ) : (

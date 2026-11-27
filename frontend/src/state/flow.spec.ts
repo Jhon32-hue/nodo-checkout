@@ -101,7 +101,12 @@ it('lista y abre una compra de la sesiÃ³n sin crear, pagar ni sincronizar', as
   expect(f.api.purchases).toHaveBeenCalledTimes(1);
   await f.flow.openPurchase(item!);
   expect(f.store.getState()).toMatchObject({
-    checkout,
+    checkout: {
+      id: checkout.id,
+      productId: checkout.productId,
+      quantity: checkout.quantity,
+      status: checkout.status,
+    },
     attempt,
     step: 'result',
   });
@@ -209,6 +214,48 @@ describe('Compra y recuperación sin reenviar pagos', () => {
     expect(f.store.getState().checkout).toBeNull();
     expect(loadProgress()).toEqual({ step: 'catalog' });
   });
+  it('mantiene datos sensibles fuera de Redux, acciones y storage', async () => {
+    sessionStorage.clear();
+    const f = fixture();
+    const dispatch = jest.spyOn(f.store, 'dispatch');
+    await prepared(f);
+    const observableBrowserState = JSON.stringify({
+      redux: f.store.getState(),
+      actions: dispatch.mock.calls,
+      localStorage: Object.fromEntries(
+        Array.from({ length: localStorage.length }, (_, index) => {
+          const key = localStorage.key(index)!;
+          return [key, localStorage.getItem(key)];
+        }),
+      ),
+      sessionStorage: Object.fromEntries(
+        Array.from({ length: sessionStorage.length }, (_, index) => {
+          const key = sessionStorage.key(index)!;
+          return [key, sessionStorage.getItem(key)];
+        }),
+      ),
+    });
+    for (const forbidden of [
+      card.number,
+      card.cvc,
+      card.holder,
+      buyer.email,
+      buyer.phone,
+      delivery.addressLine1,
+      config.publicKey,
+      config.tokenizationPublicKey,
+      config.acceptance.acceptanceToken,
+      config.acceptance.personalAuthToken,
+      'transient-card-token',
+    ])
+      expect(observableBrowserState).not.toContain(forbidden);
+    expect(sessionStorage.length).toBe(0);
+    expect(f.flow.checkoutDraft(checkout.id)).toEqual({
+      checkoutId: checkout.id,
+      buyer,
+      delivery,
+    });
+  });
   it('recupera IDs de backend tras refresh sin pay ni tokenización', async () => {
     const f = fixture();
     saveProgress({
@@ -284,7 +331,15 @@ describe('Compra y recuperación sin reenviar pagos', () => {
     f.api.summary.mockRejectedValue(new ApiError('INCOMPLETE_CHECKOUT'));
     const flow = new Flow(f.store, f.api, f.token);
     await flow.initialize();
-    expect(f.store.getState().checkout).toEqual(checkout);
+    expect(f.store.getState().checkout).toEqual({
+      id: checkout.id,
+      productId: checkout.productId,
+      quantity: checkout.quantity,
+      status: checkout.status,
+      activeTransactionId: checkout.activeTransactionId,
+      latestTransactionId: checkout.latestTransactionId,
+      deliveryId: checkout.deliveryId,
+    });
     expect(f.store.getState().summary).toBeNull();
     expect(f.store.getState().step).toBe('catalog');
     await flow.recover();
@@ -436,4 +491,84 @@ it('no sobrescribe IDs si falla la recuperación de sesión tras refresh', async
   await flow.begin(product.id, 1);
   expect(f.api.createCheckout).not.toHaveBeenCalled();
   expect(loadProgress().transactionId).toBe(attempt.id);
+});
+
+it.each(['RESOURCE_NOT_FOUND', 'SESSION_REQUIRED'])(
+  'separa un checkout local inaccesible (%s) del carrito y crea uno nuevo solo por acción explícita',
+  async (recoveryError) => {
+    const f = fixture();
+    const staleCheckoutId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const freshCheckout = {
+      ...checkout,
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    };
+    saveProgress({
+      checkoutId: staleCheckoutId,
+      transactionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      step: 'result',
+    });
+    f.store.dispatch(actions.products([product]));
+    f.store.dispatch(actions.cart({ productId: product.id, quantity: 1 }));
+    f.api.checkout.mockRejectedValueOnce(new ApiError(recoveryError));
+    f.api.createCheckout.mockResolvedValueOnce(freshCheckout);
+
+    const flow = new Flow(f.store, f.api, f.token);
+    await flow.initialize();
+
+    expect(f.store.getState()).toMatchObject({
+      cart: { productId: product.id, quantity: 1 },
+      checkout: null,
+      attempt: null,
+      error: '',
+    });
+    expect(f.store.getState().recoveryWarning).toContain(
+      'pertenece a otra sesión',
+    );
+    expect(loadProgress()).toMatchObject({
+      checkoutId: staleCheckoutId,
+      transactionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    });
+    expect(f.api.createCheckout).not.toHaveBeenCalled();
+    expect(f.api.pay).not.toHaveBeenCalled();
+    expect(f.api.sync).not.toHaveBeenCalled();
+
+    await flow.begin(product.id, 1);
+
+    expect(f.api.createCheckout).toHaveBeenCalledTimes(1);
+    expect(f.store.getState().checkout?.id).toBe(freshCheckout.id);
+    expect(f.store.getState().cart).toEqual({
+      productId: product.id,
+      quantity: 1,
+    });
+    expect(f.store.getState().recoveryWarning).toBe('');
+    expect(loadProgress()).toEqual({
+      checkoutId: freshCheckout.id,
+      step: 'details',
+    });
+    expect(f.api.pay).not.toHaveBeenCalled();
+    expect(f.api.sync).not.toHaveBeenCalled();
+  },
+);
+
+it('un error del historial no bloquea catálogo, carrito ni una compra nueva', async () => {
+  const f = fixture();
+  await f.flow.initialize();
+  f.store.dispatch(actions.cart({ productId: product.id, quantity: 1 }));
+  f.api.purchases.mockRejectedValueOnce(new ApiError('SESSION_REQUIRED'));
+
+  await f.flow.history();
+
+  expect(f.store.getState().historyError).toContain('sesión');
+  expect(f.store.getState().error).toBe('');
+  expect(f.store.getState().products).toEqual([product]);
+  expect(f.store.getState().cart).toEqual({
+    productId: product.id,
+    quantity: 1,
+  });
+
+  await f.flow.begin(product.id, 1);
+  expect(f.api.createCheckout).toHaveBeenCalledTimes(1);
+  expect(f.store.getState().step).toBe('details');
+  expect(f.api.pay).not.toHaveBeenCalled();
+  expect(f.api.sync).not.toHaveBeenCalled();
 });

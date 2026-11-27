@@ -11,7 +11,7 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import { formSchema, type FormValues } from '../validation';
 import { CardBrands } from './CardBrands';
-import type { Checkout, Config, Buyer, Delivery } from '../types';
+import type { PublicCheckout, Config, Buyer, Delivery } from '../types';
 import type { Flow } from '../state/flow';
 import styles from '../App.module.css';
 
@@ -36,7 +36,7 @@ export function DetailsForm({
   draft,
   onDraftChange,
 }: {
-  checkout: Checkout;
+  checkout: PublicCheckout;
   flow: Flow;
   busy: boolean;
   draft?: Draft;
@@ -58,22 +58,16 @@ export function DetailsForm({
     resolver: zodResolver(formSchema),
     shouldUnregister: false,
     defaultValues: {
-      buyer: draft?.buyer ??
-        checkout.buyer ?? { fullName: '', email: '', phone: '' },
+      buyer: draft?.buyer ?? { fullName: '', email: '', phone: '' },
       delivery: {
         recipientName: '',
         phone: '',
         addressLine1: '',
         city: '',
         region: '',
-        ...checkout.delivery,
         ...draft?.delivery,
-        addressLine2:
-          draft?.delivery?.addressLine2 ??
-          checkout.delivery?.addressLine2 ??
-          '',
-        postalCode:
-          draft?.delivery?.postalCode ?? checkout.delivery?.postalCode ?? '',
+        addressLine2: draft?.delivery?.addressLine2 ?? '',
+        postalCode: draft?.delivery?.postalCode ?? '',
         country: 'CO',
       },
       card: { number: '', holder: '', month: '', year: '', cvc: '' },

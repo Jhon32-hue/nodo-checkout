@@ -389,11 +389,6 @@ it('error de configuración no habilita tokenización', async () => {
     <DetailsForm
       checkout={{
         ...checkout,
-        buyer: {
-          fullName: 'Nombre Guardado',
-          email: 'a@b.co',
-          phone: '+57123',
-        },
       }}
       flow={f}
       busy={false}

@@ -35,6 +35,7 @@ export interface Checkout {
   latestTransactionId: string | null;
   deliveryId: string | null;
 }
+export type PublicCheckout = Omit<Checkout, 'buyer' | 'delivery'>;
 export interface Summary {
   quantity: number;
   unitPriceCents: number;

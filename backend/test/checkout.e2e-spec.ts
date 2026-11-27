@@ -172,6 +172,8 @@ describe('Recoverable checkout (isolated PostgreSQL)', () => {
       if (typeof first === 'string') {
         expect(first).toContain('HttpOnly');
         expect(first).toContain('SameSite=Lax');
+        expect(first).toContain('Path=/');
+        expect(first).not.toContain('Secure');
         value = first.split(';')[0];
       }
     }
@@ -208,6 +210,43 @@ describe('Recoverable checkout (isolated PostgreSQL)', () => {
         ),
       });
     expect(record.tokenDigest.equals(Buffer.from(token))).toBe(false);
+  });
+  it('creates isolated checkouts for two new guest sessions without changing the first', async () => {
+    const firstSession = await login();
+    const secondSession = await login();
+    const firstCheckoutId = await create(firstSession);
+    const firstBefore = await source
+      .getRepository(CheckoutOrmEntity)
+      .findOneByOrFail({ id: firstCheckoutId });
+
+    const secondCheckoutId = await create(secondSession);
+    const [firstAfter, secondCheckout] = await Promise.all([
+      source
+        .getRepository(CheckoutOrmEntity)
+        .findOneByOrFail({ id: firstCheckoutId }),
+      source
+        .getRepository(CheckoutOrmEntity)
+        .findOneByOrFail({ id: secondCheckoutId }),
+    ]);
+
+    expect(secondCheckoutId).not.toBe(firstCheckoutId);
+    expect(secondCheckout.sessionId).not.toBe(firstAfter.sessionId);
+    expect(firstAfter).toMatchObject({
+      id: firstBefore.id,
+      sessionId: firstBefore.sessionId,
+      productId: firstBefore.productId,
+      quantity: firstBefore.quantity,
+      status: firstBefore.status,
+    });
+    await request(app.getHttpServer())
+      .get(`/api/v1/checkouts/${firstCheckoutId}`)
+      .set('Cookie', secondSession.cookie)
+      .expect(404);
+    await request(app.getHttpServer())
+      .get('/api/v1/transactions')
+      .set('Cookie', secondSession.cookie)
+      .expect(200)
+      .expect({ data: { items: [] } });
   });
   it('rejects missing/expired session, bad Origin and bad CSRF', async () => {
     await request(app.getHttpServer())

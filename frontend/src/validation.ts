@@ -99,6 +99,8 @@ export function message(error: unknown) {
         RESOURCE_NOT_FOUND: 'Esta compra no está disponible en tu sesión.',
         UNAUTHORIZED:
           'La sesión venció. No vuelvas a enviar un pago pendiente.',
+        SESSION_REQUIRED:
+          'La sesión venció. No vuelvas a enviar un pago pendiente.',
         RESERVATION_EXPIRED: 'La reserva venció sin cobro. Vuelve al catálogo.',
         INVALID_ACCEPTANCE:
           'Los contratos cambiaron. Vuelve a introducir la tarjeta y aceptar los enlaces vigentes.',

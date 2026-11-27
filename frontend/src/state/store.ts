@@ -5,7 +5,7 @@ import {
 } from '@reduxjs/toolkit';
 import type {
   Product,
-  Checkout,
+  PublicCheckout,
   Summary,
   Attempt,
   PurchaseHistoryItem,
@@ -14,11 +14,13 @@ import type {
 import { availableCart, loadCart, saveCart, type Cart } from './cart';
 export interface State {
   products: Product[];
-  checkout: Checkout | null;
+  checkout: PublicCheckout | null;
   summary: Summary | null;
   attempt: Attempt | null;
   purchases: PurchaseHistoryItem[];
   historyLoaded: boolean;
+  historyError: string;
+  recoveryWarning: string;
   step: Step;
   busy: boolean;
   error: string;
@@ -34,6 +36,8 @@ const initialState: State = {
   attempt: null,
   purchases: [],
   historyLoaded: false,
+  historyError: '',
+  recoveryWarning: '',
   step: 'catalog',
   busy: false,
   error: '',
@@ -50,7 +54,7 @@ const slice = createSlice({
       s.products = a.payload;
       s.cart = availableCart(s.cart, a.payload);
     },
-    checkout: (s, a: PayloadAction<Checkout | null>) => {
+    checkout: (s, a: PayloadAction<PublicCheckout | null>) => {
       s.checkout = a.payload;
     },
     summary: (s, a: PayloadAction<Summary | null>) => {
@@ -62,6 +66,12 @@ const slice = createSlice({
     purchases: (s, a: PayloadAction<PurchaseHistoryItem[]>) => {
       s.purchases = a.payload;
       s.historyLoaded = true;
+    },
+    historyError: (s, a: PayloadAction<string>) => {
+      s.historyError = a.payload;
+    },
+    recoveryWarning: (s, a: PayloadAction<string>) => {
+      s.recoveryWarning = a.payload;
     },
     step: (s, a: PayloadAction<Step>) => {
       s.step = a.payload;
