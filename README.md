@@ -1,8 +1,9 @@
 # Nodo — checkout con tarjeta
 
 Construí una tienda de tecnología con un checkout recuperable y pagos con tarjeta
-mediante Wompi UAT Sandbox. Puedes explorar productos, elegir unidades, completar
-comprador y entrega, revisar el total y consultar el resultado o tus compras.
+mediante un proveedor de pagos en Sandbox. Puedes explorar productos, elegir
+unidades, completar comprador y entrega, revisar el total y consultar el resultado
+o tus compras.
 La API verifica el pago y coordina inventario, reserva y entrega en PostgreSQL.
 La aplicación y Swagger están publicados en AWS con HTTPS, usando únicamente Sandbox.
 
@@ -212,8 +213,14 @@ CloudFront no se utiliza: AWS exige verificar la cuenta para crear distribucione
 
 Portada, catálogo, Swagger y OpenAPI públicos respondieron 200; hay una tarea ECS
 sana y diez productos. El OpenAPI público coincide con el versionado. Migración
-y seed terminaron con salida 0. Se verificó sesión/cookie segura sin crear pagos;
-esta comprobación no acredita un nuevo cobro real en UAT.
+y seed terminaron con salida 0. Se verificaron creación y reutilización de sesión.
+
+El 27 de noviembre de 2026 a las **09:53 (Colombia)**, un único intento público
+Sandbox verificó `PENDING` y reserva `HELD`, con envío `NOT_SENT` antes del cobro.
+El envío pasó por `IN_FLIGHT` y `SUBMITTED`; una consulta `sync` confirmó
+`APPROVED`, reserva `CONFIRMED` y checkout `PAID`. Las existencias mostradas por
+la API pasaron de **10 a 9**, y el historial de la misma sesión mostró la aprobación.
+Hubo un solo envío, sin reenvíos. Se comprobó **por HTTP, no visualmente en navegador**.
 
 ## Limitaciones y referencias
 
