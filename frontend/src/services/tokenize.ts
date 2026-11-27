@@ -1,6 +1,7 @@
 import { EncryptJWT, importSPKI } from 'jose';
 import type { Card, Config } from '../types';
 import { ApiError } from './api';
+import { normalizeCardNumber } from '../validation';
 export const UAT = 'https://api-sandbox.co.uat.wompi.dev';
 export class TokenizationError extends ApiError {
   constructor(
@@ -40,7 +41,7 @@ export async function tokenize(card: Card, config: Config): Promise<string> {
     );
     reason = 'crypto';
     const payload = await new EncryptJWT({
-      number: card.number.replace(/\s/g, ''),
+      number: normalizeCardNumber(card.number),
       exp_month: card.month.padStart(2, '0'),
       exp_year: card.year.slice(-2),
       cvc: card.cvc,

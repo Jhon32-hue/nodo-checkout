@@ -8,6 +8,8 @@ import {
   quantityValid,
   message,
   money,
+  formatCardNumber,
+  normalizeCardNumber,
 } from './validation';
 import { ApiError } from './services/api';
 import { card, buyer, delivery } from '../test/fixtures';
@@ -15,6 +17,7 @@ describe('Validaciones del formulario', () => {
   it('valida Luhn, longitud y entrada de texto', () => {
     expect(luhn(card.number)).toBe(true);
     expect(luhn('4242 4242 4242 4242')).toBe(true);
+    expect(luhn('4242-4242-4242-4242')).toBe(true);
     for (const n of [
       '',
       'abc',
@@ -24,6 +27,13 @@ describe('Validaciones del formulario', () => {
       card.number.slice(0, -1) + '2',
     ])
       expect(luhn(n)).toBe(false);
+  });
+  it('normaliza y presenta el número sin exceder 19 dígitos', () => {
+    expect(normalizeCardNumber('4242- 4242 abc 4242-4242')).toBe(
+      '4242424242424242',
+    );
+    expect(formatCardNumber('4242424242424242')).toBe('4242 4242 4242 4242');
+    expect(normalizeCardNumber('1'.repeat(25))).toHaveLength(19);
   });
   it('detecta marcas y formatea centavos en COP', () => {
     expect(brand(card.number)).toBe('Visa');

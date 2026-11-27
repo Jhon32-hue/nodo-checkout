@@ -5,9 +5,15 @@ export const money = (cents: number) =>
     currency: 'COP',
     maximumFractionDigits: 0,
   }).format(cents / 100);
+export const normalizeCardNumber = (value: string) =>
+  value.replace(/\D/g, '').slice(0, 19);
+export const formatCardNumber = (value: string) =>
+  normalizeCardNumber(value).replace(/(\d{4})(?=\d)/g, '$1 ');
 export function luhn(value: string) {
-  const digits = value.replace(/\s/g, '');
-  if (!/^\d{13,19}$/.test(digits) || /^0+$/.test(digits)) return false;
+  const compact = value.replace(/[\s-]/g, '');
+  if (!/^\d{13,19}$/.test(compact)) return false;
+  const digits = normalizeCardNumber(compact);
+  if (/^0+$/.test(digits)) return false;
   let sum = 0;
   for (let i = digits.length - 1, even = false; i >= 0; i--, even = !even) {
     let d = Number(digits[i]);
@@ -20,7 +26,9 @@ export function luhn(value: string) {
   return sum % 10 === 0;
 }
 export function brand(value: string) {
-  const n = value.replace(/\s/g, '');
+  const compact = value.replace(/[\s-]/g, '');
+  if (!/^\d*$/.test(compact)) return 'Tarjeta';
+  const n = normalizeCardNumber(compact);
   if (/^4/.test(n)) return 'Visa';
   if (/^5[1-5]/.test(n)) return 'Mastercard';
   if (n.length >= 4 && /^\d{4}/.test(n)) {

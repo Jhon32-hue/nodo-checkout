@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useForm, useWatch, Controller, type Path } from 'react-hook-form';
+import { useForm, Controller, type Path } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
@@ -10,7 +10,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import { formSchema, type FormValues } from '../validation';
-import { CardBrands } from './CardBrands';
+import { CardNumberField } from './CardNumberField';
 import type { PublicCheckout, Config, Buyer, Delivery } from '../types';
 import type { Flow } from '../state/flow';
 import styles from '../App.module.css';
@@ -75,7 +75,6 @@ export function DetailsForm({
       personal: false,
     },
   });
-  const number = useWatch({ control, name: 'card.number' });
   useEffect(() => {
     let active = true;
     void flow
@@ -207,15 +206,20 @@ export function DetailsForm({
             para Wompi Sandbox.
           </p>
           <div className={styles.formStack}>
-            <div className={styles.cardNumberField}>
-              {field('card.number', 'Número de tarjeta', {
-                inputMode: 'numeric',
-                maxLength: 23,
-                autoComplete: 'off',
-                autoFocus: true,
-              })}
-              <CardBrands number={number ?? ''} />
-            </div>
+            <Controller
+              name="card.number"
+              control={control}
+              render={({ field: cardNumber, fieldState }) => (
+                <CardNumberField
+                  value={cardNumber.value}
+                  onChange={cardNumber.onChange}
+                  onBlur={cardNumber.onBlur}
+                  inputRef={cardNumber.ref}
+                  error={fieldState.invalid}
+                  helperText={fieldState.error?.message}
+                />
+              )}
+            />
             {field('card.holder', 'Titular de la tarjeta', {
               maxLength: 120,
               autoComplete: 'off',

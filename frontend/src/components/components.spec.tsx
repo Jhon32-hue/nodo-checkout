@@ -350,7 +350,9 @@ it('contratos independientes sin preselección, errores junto a campos y tarjeta
   await screen.findByRole('heading', { name: 'Tus datos' });
   expect(f.details).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Volver' }));
-  expect(screen.getByLabelText('Número de tarjeta')).toHaveValue(card.number);
+  expect(screen.getByLabelText('Número de tarjeta')).toHaveValue(
+    '4111 1111 1111 1111',
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
   await screen.findByRole('heading', { name: 'Tus datos' });
   const buyerFields: Record<string, string> = {
