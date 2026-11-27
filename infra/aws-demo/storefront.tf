@@ -20,115 +20,102 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "spa" {
   }
 }
 
-resource "aws_cloudfront_origin_access_control" "spa" {
-  name                              = local.name
-  origin_access_control_origin_type = "s3"
-  signing_behavior                  = "always"
-  signing_protocol                  = "sigv4"
+locals {
+  spa_routes = {
+    root   = "/"
+    index  = "/index.html"
+    assets = "/assets/{proxy+}"
+    images = "/images/{proxy+}"
+    fonts  = "/fonts/{proxy+}"
+  }
 }
 
-data "aws_cloudfront_cache_policy" "static" {
-  name = "Managed-CachingOptimized"
+data "archive_file" "spa" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda"
+  output_path = "${path.module}/.local/spa-lambda.zip"
 }
 
-data "aws_cloudfront_cache_policy" "disabled" {
-  name = "Managed-CachingDisabled"
+resource "aws_cloudwatch_log_group" "spa" {
+  name              = "/aws/lambda/${local.name}-spa"
+  retention_in_days = 7
 }
 
-resource "aws_cloudfront_origin_request_policy" "api" {
-  name = "${local.name}-api"
-  cookies_config {
-    cookie_behavior = "all"
-  }
-  headers_config {
-    header_behavior = "whitelist"
-    headers {
-      items = ["Origin", "X-CSRF-Token", "Idempotency-Key", "Content-Type", "Accept"]
-    }
-  }
-  query_strings_config {
-    query_string_behavior = "all"
-  }
-  # Host is intentionally not forwarded: API Gateway requires its own hostname.
-}
-
-resource "aws_cloudfront_distribution" "spa" {
-  enabled             = true
-  is_ipv6_enabled     = true
-  default_root_object = "index.html"
-  price_class         = "PriceClass_100"
-  comment             = "Nodo assessment SPA and same-origin API"
-
-  origin {
-    domain_name              = aws_s3_bucket.spa.bucket_regional_domain_name
-    origin_id                = "spa"
-    origin_access_control_id = aws_cloudfront_origin_access_control.spa.id
-  }
-  origin {
-    domain_name = trimprefix(aws_apigatewayv2_api.api.api_endpoint, "https://")
-    origin_id   = "api"
-    custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "https-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
-      origin_read_timeout    = 30
-    }
-  }
-
-  default_cache_behavior {
-    target_origin_id       = "spa"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD"]
-    cached_methods         = ["GET", "HEAD"]
-    compress               = true
-    cache_policy_id        = data.aws_cloudfront_cache_policy.static.id
-  }
-
-  dynamic "ordered_cache_behavior" {
-    for_each = ["/api/*", "/docs", "/docs/*", "/docs-json"]
-    content {
-      path_pattern             = ordered_cache_behavior.value
-      target_origin_id         = "api"
-      viewer_protocol_policy   = "https-only"
-      allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "PATCH", "POST", "DELETE"]
-      cached_methods           = ["GET", "HEAD"]
-      compress                 = true
-      cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
-      origin_request_policy_id = aws_cloudfront_origin_request_policy.api.id
-    }
-  }
-
-  dynamic "custom_error_response" {
-    for_each = [400, 403, 404, 405, 414, 416, 500, 501, 502, 503, 504]
-    content {
-      error_code            = custom_error_response.value
-      error_caching_min_ttl = 0
-    }
-  }
-
-  # The existing SPA uses hash navigation. Do not rewrite API 403/404 to index.html.
-  restrictions {
-    geo_restriction {
-      restriction_type = "none"
-    }
-  }
-  viewer_certificate {
-    cloudfront_default_certificate = true
-  }
-  depends_on = [aws_apigatewayv2_stage.api]
-}
-
-resource "aws_s3_bucket_policy" "spa" {
-  bucket = aws_s3_bucket.spa.id
-  policy = jsonencode({
+resource "aws_iam_role" "spa" {
+  name = "${local.name}-spa"
+  assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Service = "cloudfront.amazonaws.com" }
-      Action    = "s3:GetObject"
-      Resource  = "${aws_s3_bucket.spa.arn}/*"
-      Condition = { StringEquals = { "AWS:SourceArn" = aws_cloudfront_distribution.spa.arn } }
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
     }]
   })
+}
+
+resource "aws_iam_role_policy" "spa" {
+  name = "read-spa-objects-only"
+  role = aws_iam_role.spa.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["s3:GetObject"]
+        Resource = [
+          "${aws_s3_bucket.spa.arn}/index.html",
+          "${aws_s3_bucket.spa.arn}/assets/*",
+          "${aws_s3_bucket.spa.arn}/images/*",
+          "${aws_s3_bucket.spa.arn}/fonts/*"
+        ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "${aws_cloudwatch_log_group.spa.arn}:*"
+      }
+    ]
+  })
+}
+
+resource "aws_lambda_function" "spa" {
+  function_name    = "${local.name}-spa"
+  role             = aws_iam_role.spa.arn
+  runtime          = "nodejs24.x"
+  architectures    = ["arm64"]
+  handler          = "index.handler"
+  filename         = data.archive_file.spa.output_path
+  source_code_hash = data.archive_file.spa.output_base64sha256
+  timeout          = 10
+  memory_size      = 128
+  environment {
+    variables = { SPA_BUCKET = aws_s3_bucket.spa.id }
+  }
+  # No VPC, secrets, database access, public function URL or S3 write permissions.
+  depends_on = [aws_iam_role_policy.spa, aws_cloudwatch_log_group.spa]
+}
+
+resource "aws_apigatewayv2_integration" "spa" {
+  api_id                 = aws_apigatewayv2_api.api.id
+  integration_type       = "AWS_PROXY"
+  integration_method     = "POST"
+  integration_uri        = aws_lambda_function.spa.invoke_arn
+  payload_format_version = "2.0"
+  timeout_milliseconds   = 12000
+}
+
+resource "aws_lambda_permission" "spa" {
+  for_each      = local.spa_routes
+  statement_id  = "HttpApi-${each.key}"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.spa.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.api.execution_arn}/$default/GET${replace(each.value, "{proxy+}", "*")}"
+}
+
+resource "aws_apigatewayv2_route" "spa" {
+  for_each  = local.spa_routes
+  api_id    = aws_apigatewayv2_api.api.id
+  route_key = "GET ${each.value}"
+  target    = "integrations/${aws_apigatewayv2_integration.spa.id}"
 }

@@ -1,40 +1,60 @@
 # Demo AWS de Nodo
 
-Infraestructura preparada, **sin aplicar ni desplegar**. Región obligatoria
-`us-east-2`; no requiere dominio propio. El plan inicial mantiene ECS en cero.
+Infraestructura **publicada** con Lambda/API Gateway; CloudFront no se utiliza
+por el bloqueo de verificación de cuenta. Región `us-east-2`, sin dominio propio.
+La API tiene una tarea ECS sana; el bootstrap inicial se mantiene en cero por defecto.
 El frontend existente usa `/api/v1` del mismo origen, sin cambios de código.
 
+- [Aplicación](https://hq1tzuevc3.execute-api.us-east-2.amazonaws.com).
+- [Swagger](https://hq1tzuevc3.execute-api.us-east-2.amazonaws.com/docs).
+- [OpenAPI](https://hq1tzuevc3.execute-api.us-east-2.amazonaws.com/docs-json).
+
+Parámetros del despliegue actual: `image_tag=5cf248042d50`, `desired_count=1`.
+Pasar ambos valores al revisar el entorno existente; omitirlos vuelve a los valores
+de bootstrap (`initial`, cero tareas). Migración y seed se ejecutaron por separado
+con salida 0 antes de activar el servicio. HTTP 200 y OpenAPI público verificados.
+
 ```text
-Navegador --HTTPS--> CloudFront (*.cloudfront.net)
-                     |-- estáticos --> S3 privado (OAC)
-                     `-- /api/*, /docs, /docs/*, /docs-json
-                           --HTTPS--> HTTP API (*.execute-api.us-east-2.amazonaws.com)
-                               --> VPC Link --> ALB interno (HTTP privado)
-                                   --> Fargate:3000 --> RDS PostgreSQL privado (TLS)
-                                         `-- HTTPS --> proveedor UAT / servicios AWS
+Navegador --HTTPS--> HTTP API (*.execute-api.us-east-2.amazonaws.com)
+                     |-- GET /, /index.html, /assets/*, /images/*, /fonts/*
+                     |     --> Lambda Node.js 24 --> S3 privado (solo lectura)
+                     `-- $default: /api/*, /docs, /docs-json y otros
+                           --> VPC Link --> ALB interno (HTTP privado)
+                               --> Fargate:3000 --> RDS PostgreSQL privado (TLS)
+                                     `-- HTTPS --> proveedor UAT / servicios AWS
 ```
 
 ## Preflight y límites
 
 Consultas de solo lectura del 27 de noviembre de 2026: plan FREE activo,
 USD 100 de créditos; Fargate On-Demand 4 vCPU, ALB 50, RDS 40 instancias
-(ninguna utilizada), tres AZ disponibles y PostgreSQL 17 `db.t4g.micro`
+(antes de desplegar), tres AZ disponibles y PostgreSQL 17 `db.t4g.micro`
 ofertado. La simulación IAM con `aws:RequestedRegion=us-east-2` permite
 las acciones principales; no demuestra disponibilidad física ni sustituye
 las restricciones que AWS evalúa al crear recursos. No se cambió el plan.
+La aplicación inicial creó 46 recursos y se detuvo por CloudFront. RDS quedó
+`available`, privada y cifrada. Tras verificar identidad y configuración se quitó
+solo su `taint` local; no se modificó, reemplazó ni borró la instancia.
 Revalidar antes de aplicar con `aws sts get-caller-identity --region us-east-2`
 y `aws freetier get-account-plan-state --region us-east-2`.
 
 La tarea tiene IP pública **solo para salida sin NAT Gateway**. Su SG admite
 3000 únicamente desde el SG del ALB. ALB acepta 80 solo desde VPC Link;
 RDS acepta 5432 solo desde tareas. No hay SSH, bastión ni puertos de API públicos.
-CloudFront y API Gateway usan sus certificados HTTPS administrados predeterminados.
+API Gateway usa su certificado HTTPS administrado predeterminado.
 El tramo VPC Link/ALB/API usa HTTP dentro de la VPC; PostgreSQL exige TLS validado.
 
-CloudFront no cachea API/Swagger: reenvía cookies, `Origin`, `X-CSRF-Token`,
-`Idempotency-Key`, Content-Type, Accept y queries; no reenvía Host del visitante.
-No se configura CORS automático ni se transforma un error de API en HTML.
-La SPA actual navega por hash. `/docs-json` conserva exactamente su contrato.
+Las cinco rutas GET estáticas tienen prioridad sobre `$default`. La integración
+existente hacia NestJS conserva cookies, Origin, CSRF e Idempotency-Key, sin
+caché HTTP API ni CORS automático. `/docs` y `/docs-json` siguen en NestJS.
+La SPA navega por hash; no se transforma un error de API en HTML.
+Lambda solo puede leer `index.html`, `assets/*`, `images/*` y `fonts/*` de este
+bucket; no puede listar buckets, escribir objetos ni acceder a secretos o RDS.
+Valida rutas, rechaza traversal/archivos ocultos, devuelve MIME por extensión y
+base64 (incluidos binarios). El bucket conserva bloqueo público; no hay URL de
+función pública ni redirecciones a S3. Máximo 4 MiB por objeto, para respetar el
+límite de respuesta de Lambda tras base64; los recursos actuales son menores.
+HTML no se cachea; assets Vite tienen caché inmutable y fotos/fuentes de 5 minutos.
 
 ## Preparar y revisar
 
@@ -50,7 +70,8 @@ terraform fmt -check
 terraform init -backend=false
 terraform validate
 New-Item -ItemType Directory -Force .local | Out-Null
-terraform plan -out=.local/initial.tfplan
+node --test test/static-handler.test.mjs
+terraform plan -out=.local/lambda-spa.tfplan
 ```
 
 Si el proveedor nativo falla con un error TLS en el canal local del plugin,
@@ -58,7 +79,8 @@ usar Terraform en Linux con la imagen oficial `hashicorp/terraform:1.17.2`.
 Así se verificaron `init`, `validate` y `plan` en esta revisión, conservando
 TLS. Para ese runner, las credenciales se entregaron en memoria por stdin,
 sin archivos ni argumentos con valores. La CA de confianza se montó solo
-para lectura. El plan revisable queda en `.local/initial.tfplan`.
+para lectura. El nuevo plan revisable queda en `.local/lambda-spa.tfplan`.
+No reutilizar `initial.tfplan`: corresponde al estado anterior a la aplicación parcial.
 
 Si el proveedor no soporta la sesión de `aws login`, exportar credenciales
 **solo al entorno del proceso** con `aws configure export-credentials --format process`
@@ -72,11 +94,14 @@ Este demo usa estado local; no crea backend remoto de estado.
 
 ## Secuencia futura de despliegue (requiere autorización)
 
-**No ejecutada en esta entrega.** Revisar el plan y el costo antes de aplicar.
+**Procedimiento aplicado; revisar cada nuevo plan y el costo antes de repetirlo.**
+Exigir RDS `no-op`; revisar las nuevas revisiones de tarea ECS por separado.
+No eliminar recursos existentes salvo accesorios CloudFront ya no utilizados.
+No usar `-target` ni omitir refresh.
 No activar ECS hasta completar todos los pasos siguientes.
 
 1. Aplicar el plan revisado manteniendo `desired_count=0`. Esto ya factura
-   ALB y RDS aunque aún no haya API. Esperar RDS, VPC Link y CloudFront.
+   ALB y RDS aunque aún no haya API. Conservar RDS y esperar Lambda/VPC Link.
 2. Construir la imagen desde la raíz y subirla con un tag inmutable:
 
    ```powershell
@@ -142,17 +167,17 @@ Tarifas públicas On-Demand de Ohio, 730 h/mes, sin impuestos, descuentos ni cr�
 Supuesto: una tarea 0.25 vCPU/0.5 GiB, una IP pública, RDS Single-AZ y tráfico bajo.
 Las cuotas consultadas no implican que estos recursos sean gratuitos.
 
-| Recurso                       |   USD/h aproximados |                       USD/mes aproximados |
-| ----------------------------- | ------------------: | ----------------------------------------: |
-| ALB interno, 1                |       0.02250 + LCU |      16.43 + 0 a 5.84 por 0 a 1 LCU medio |
-| Fargate Linux x86, 1 tarea    |             0.01235 |                                      9.01 |
-| IPv4 pública de la tarea      |             0.00500 |                                      3.65 |
-| PostgreSQL `db.t4g.micro`     |             0.01600 |                                     11.68 |
-| RDS gp3, 20 GiB               | 0.00315 equivalente |                                      2.30 |
-| Secrets Manager, 2 secretos   | 0.00110 equivalente |                          0.80 + consultas |
-| HTTP API                      |     Por solicitudes |             ~0.10 por 100 000 solicitudes |
-| S3, ECR y CloudWatch (7 días) |             Por uso |                            Reservar 1 a 3 |
-| CloudFront y transferencia    |   Por uso y destino | Reservar 0 a 3 con <=10 GB y tráfico bajo |
+| Recurso                             |   USD/h aproximados |                       USD/mes aproximados |
+| ----------------------------------- | ------------------: | ----------------------------------------: |
+| ALB interno, 1                      |       0.02250 + LCU |      16.43 + 0 a 5.84 por 0 a 1 LCU medio |
+| Fargate Linux x86, 1 tarea          |             0.01235 |                                      9.01 |
+| IPv4 pública de la tarea            |             0.00500 |                                      3.65 |
+| PostgreSQL `db.t4g.micro`           |             0.01600 |                                     11.68 |
+| RDS gp3, 20 GiB                     | 0.00315 equivalente |                                      2.30 |
+| Secrets Manager, 2 secretos         | 0.00110 equivalente |                          0.80 + consultas |
+| HTTP API                            |     Por solicitudes |             ~0.10 por 100 000 solicitudes |
+| S3, ECR y CloudWatch (7 días)       |             Por uso |                            Reservar 1 a 3 |
+| Lambda de estáticos y transferencia |             Por uso | Reservar 0 a 3 con <=10 GB y tráfico bajo |
 
 Base: **~USD 44/mes más uso**; reservar **USD 45–55/mes (~0.06–0.08/h)**
 para esta demo de bajo tráfico. Con cero tareas sigue habiendo ~USD 31/mes
@@ -172,6 +197,7 @@ Fuentes: [Fargate](https://aws.amazon.com/fargate/pricing/),
 [ALB](https://aws.amazon.com/elasticloadbalancing/pricing/),
 [RDS](https://aws.amazon.com/rds/postgresql/pricing/),
 [API Gateway](https://aws.amazon.com/api-gateway/pricing/),
+[Lambda](https://aws.amazon.com/lambda/pricing/),
 [IPv4/transferencia](https://aws.amazon.com/vpc/pricing/),
 [plan FREE](https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/free-tier.html).
 
@@ -184,7 +210,7 @@ configurado **sin snapshot final**: destroy elimina la base de esta demo.
 Vaciar explícitamente el bucket de SPA y borrar imágenes del repositorio ECR
 exactos obtenidos de outputs; ambos bloquean destroy si contienen archivos.
 Revisar `terraform plan -destroy` y ejecutar `terraform destroy` únicamente
-después de esa revisión. CloudFront puede tardar varios minutos en eliminarse.
+después de esa revisión. No destruir la RDS para corregir un `taint` de estado.
 El secreto de aplicación conserva 7 días de recuperación; no reutilizar el nombre
 mientras su eliminación esté pendiente. RDS elimina su secreto administrado.
 Revisar consola para snapshots/manuales, tareas, interfaces y cargos residuales.

@@ -1,11 +1,11 @@
 output "application_url" {
-  value = "https://${aws_cloudfront_distribution.spa.domain_name}"
+  value = aws_apigatewayv2_api.api.api_endpoint
 }
 output "swagger_url" {
-  value = "https://${aws_cloudfront_distribution.spa.domain_name}/docs"
+  value = "${aws_apigatewayv2_api.api.api_endpoint}/docs"
 }
 output "openapi_url" {
-  value = "https://${aws_cloudfront_distribution.spa.domain_name}/docs-json"
+  value = "${aws_apigatewayv2_api.api.api_endpoint}/docs-json"
 }
 output "spa_bucket" {
   value = aws_s3_bucket.spa.id

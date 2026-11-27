@@ -81,7 +81,7 @@ resource "aws_ecs_task_definition" "api" {
       { name = "DB_PORT", value = "5432" },
       { name = "DB_NAME", value = aws_db_instance.demo.db_name },
       { name = "PGSSLMODE", value = "verify-full" },
-      { name = "FRONTEND_ORIGINS", value = "https://${aws_cloudfront_distribution.spa.domain_name}" },
+      { name = "FRONTEND_ORIGINS", value = aws_apigatewayv2_api.api.api_endpoint },
       { name = "WOMPI_BASE_URL", value = "https://api-sandbox.co.uat.wompi.dev/v1" }
     ]
     secrets = concat([

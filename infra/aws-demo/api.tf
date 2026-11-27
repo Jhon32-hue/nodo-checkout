@@ -35,7 +35,7 @@ resource "aws_lb_listener" "api" {
 resource "aws_apigatewayv2_api" "api" {
   name          = local.name
   protocol_type = "HTTP"
-  # No CORS middleware: the browser calls /api on its CloudFront origin.
+  # No CORS middleware: SPA and /api share this HTTP API HTTPS origin.
 }
 
 resource "aws_apigatewayv2_vpc_link" "api" {

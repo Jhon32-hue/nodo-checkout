@@ -4,13 +4,13 @@ Construí una tienda de tecnología con un checkout recuperable y pagos con tarj
 mediante Wompi UAT Sandbox. Puedes explorar productos, elegir unidades, completar
 comprador y entrega, revisar el total y consultar el resultado o tus compras.
 La API verifica el pago y coordina inventario, reserva y entrega en PostgreSQL.
-El recorrido está implementado; la publicación en AWS sigue pendiente.
+La aplicación y Swagger están publicados en AWS con HTTPS, usando únicamente Sandbox.
 
 ## Enlaces para evaluar
 
-- GitHub público: pendiente de publicación.
-- Aplicación pública conectada a la API: pendiente de despliegue.
-- Swagger público o colección Postman: pendiente de entrega.
+- [Repositorio público](https://github.com/Jhon32-hue/nodo-checkout).
+- [Aplicación pública conectada a la API](https://hq1tzuevc3.execute-api.us-east-2.amazonaws.com).
+- [Swagger público](https://hq1tzuevc3.execute-api.us-east-2.amazonaws.com/docs).
 - [OpenAPI versionado](docs/openapi.json) y [contrato HTTP](docs/api-contract.md).
 - [Ejecución local](#ejecución-local) y [pruebas/cobertura](#pruebas-y-cobertura).
 
@@ -161,8 +161,8 @@ Abre `http://localhost:5173`. Vite usa 5173 y envía `/api` al backend en 3000;
 incluye ese origen exacto en `FRONTEND_ORIGINS`. PostgreSQL local usa 5433.
 Swagger local: <http://localhost:3000/docs>; OpenAPI local: <http://localhost:3000/docs-json>.
 Si Windows necesita su almacén de certificados, configura `NODE_USE_SYSTEM_CA`
-en el proceso del backend; conserva TLS validado. Linux como runtime de API y AWS
-siguen pendientes de verificación; PostgreSQL sí se ejecuta en Docker Linux.
+en el proceso del backend; conserva TLS validado. La imagen Linux de la API está
+verificada en ECS Fargate; PostgreSQL local se ejecuta en Docker Linux.
 
 ## Pruebas y cobertura
 
@@ -202,12 +202,18 @@ npm run test:cov
 
 ## Despliegue AWS
 
-**Despliegue público pendiente.** Arquitectura de despliegue en preparación:
-React compilado en S3 privado; CloudFront para HTTPS y distribución SPA/API;
-imagen NestJS en ECR, API en ECS Fargate detrás de ALB y PostgreSQL en RDS.
-Secretos en Secrets Manager o SSM (elección pendiente), logs en CloudWatch y
-recursos reproducibles con Terraform. La [infraestructura de demo](infra/aws-demo/README.md)
-está preparada y validada, sin aplicar. No hay recursos operativos ni URLs públicas.
+**Operativo en `us-east-2`.** El HTTP API de API Gateway ofrece el origen HTTPS
+compartido: cinco rutas GET sirven la SPA desde S3 privado mediante Lambda;
+`$default` conserva `/api/*` y Swagger hacia VPC Link, ALB interno y ECS Fargate.
+La imagen está en ECR; PostgreSQL 17 usa RDS privado y cifrado. Secrets Manager
+conserva los secretos y la contraseña administrada; CloudWatch recibe los logs.
+CloudFront no se utiliza: AWS exige verificar la cuenta para crear distribuciones.
+[Terraform, despliegue y eliminación](infra/aws-demo/README.md).
+
+Portada, catálogo, Swagger y OpenAPI públicos respondieron 200; hay una tarea ECS
+sana y diez productos. El OpenAPI público coincide con el versionado. Migración
+y seed terminaron con salida 0. Se verificó sesión/cookie segura sin crear pagos;
+esta comprobación no acredita un nuevo cobro real en UAT.
 
 ## Limitaciones y referencias
 
