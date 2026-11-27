@@ -9,6 +9,8 @@ import CreditCardIcon from '@mui/icons-material/CreditCard';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import PersonIcon from '@mui/icons-material/Person';
+import ButtonBase from '@mui/material/ButtonBase';
 import { formSchema, type FormValues } from '../validation';
 import { CardNumberField } from './CardNumberField';
 import type { PublicCheckout, Config, Buyer, Delivery } from '../types';
@@ -16,6 +18,15 @@ import type { Flow } from '../state/flow';
 import styles from '../App.module.css';
 
 type Phase = 'card' | 'buyer' | 'delivery';
+const phases: Array<{
+  id: Phase;
+  label: string;
+  icon: typeof CreditCardIcon;
+}> = [
+  { id: 'card', label: 'Tarjeta', icon: CreditCardIcon },
+  { id: 'buyer', label: 'Comprador', icon: PersonIcon },
+  { id: 'delivery', label: 'Entrega', icon: LocalShippingIcon },
+];
 type Draft = { buyer?: Buyer; delivery?: Delivery };
 const cardNames: Path<FormValues>[] = [
   'card.number',
@@ -43,6 +54,7 @@ export function DetailsForm({
   onDraftChange?: (draft: Draft) => void;
 }) {
   const [phase, setPhase] = useState<Phase>('card');
+  const [furthestPhase, setFurthestPhase] = useState(0);
   const [optional, setOptional] = useState(false);
   const [config, setConfig] = useState<Config | null>(null);
   const [configError, setConfigError] = useState(false);
@@ -147,9 +159,13 @@ export function DetailsForm({
     );
   };
   const next = async () => {
-    if (phase === 'card' && (await trigger(cardNames))) setPhase('buyer');
-    else if (phase === 'buyer' && (await trigger(buyerNames)))
+    if (phase === 'card' && (await trigger(cardNames))) {
+      setFurthestPhase((current) => Math.max(current, 1));
+      setPhase('buyer');
+    } else if (phase === 'buyer' && (await trigger(buyerNames))) {
+      setFurthestPhase((current) => Math.max(current, 2));
       setPhase('delivery');
+    }
   };
   const back = () => setPhase(phase === 'delivery' ? 'buyer' : 'card');
   const submit = handleSubmit(async (values) => {
@@ -180,6 +196,30 @@ export function DetailsForm({
         else void next();
       }}
     >
+      <nav className={styles.formProgress} aria-label="Pasos del formulario">
+        {phases.map(({ id, label, icon: Icon }, index) => (
+          <ButtonBase
+            key={id}
+            type="button"
+            className={styles.formProgressStep}
+            data-state={
+              phase === id
+                ? 'actual'
+                : index <= furthestPhase
+                  ? 'completado'
+                  : 'bloqueado'
+            }
+            aria-current={phase === id ? 'step' : undefined}
+            aria-label={`${label}, ${phase === id ? 'actual' : index <= furthestPhase ? 'completado' : 'bloqueado'}`}
+            disabled={busy || phase === id || index > furthestPhase}
+            onClick={() => setPhase(id)}
+          >
+            <span>{index + 1}</span>
+            <Icon aria-hidden="true" fontSize="small" />
+            <strong>{label}</strong>
+          </ButtonBase>
+        ))}
+      </nav>
       <div className={styles.stepHeading}>
         {phase === 'card' ? (
           <CreditCardIcon color="primary" />
@@ -202,8 +242,8 @@ export function DetailsForm({
       {phase === 'card' && (
         <>
           <p className={styles.muted}>
-            Usa únicamente una tarjeta ficticia de prueba. Los datos se cifran
-            para Wompi Sandbox.
+            Usa únicamente datos ficticios de prueba. La tarjeta se procesa de
+            forma segura y no se guarda en esta tienda.
           </p>
           <div className={styles.formStack}>
             <Controller
@@ -398,6 +438,12 @@ export function DetailsForm({
               : 'Continuar'}
         </Button>
       </div>
+      {busy && (
+        <p className={styles.operationStatus} role="status" aria-live="polite">
+          Estamos consultando la información necesaria. Evita cerrar esta
+          ventana o pulsar el botón nuevamente.
+        </p>
+      )}
       <p className={styles.security}>
         La tarjeta y el CVC no se guardan en esta tienda.
       </p>

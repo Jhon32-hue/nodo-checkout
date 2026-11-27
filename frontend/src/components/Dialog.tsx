@@ -34,7 +34,14 @@ export function Dialog({
       maxWidth="sm"
       aria-labelledby="dialog-title"
       slotProps={{
-        paper: { sx: { width: 'min(560px, calc(100vw - 24px))', m: 1.5 } },
+        paper: {
+          sx: {
+            width: 'min(560px, calc(100vw - 24px))',
+            maxHeight: 'min(760px, calc(100dvh - 24px))',
+            m: 1.5,
+            overflow: 'hidden',
+          },
+        },
       }}
     >
       <div className={styles.dialogHeader}>
@@ -48,7 +55,7 @@ export function Dialog({
           <CloseIcon />
         </IconButton>
       </div>
-      <DialogContent ref={content} dividers>
+      <DialogContent ref={content} dividers className={styles.dialogContent}>
         {children}
       </DialogContent>
     </MuiDialog>

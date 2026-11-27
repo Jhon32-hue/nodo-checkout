@@ -349,11 +349,16 @@ it('contratos independientes sin preselección, errores junto a campos y tarjeta
   fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
   await screen.findByRole('heading', { name: 'Tus datos' });
   expect(f.details).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Volver' }));
+  expect(
+    screen.getByRole('button', { name: 'Entrega, bloqueado' }),
+  ).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Tarjeta, completado' }));
   expect(screen.getByLabelText('Número de tarjeta')).toHaveValue(
     '4111 1111 1111 1111',
   );
-  fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Comprador, completado' }),
+  );
   await screen.findByRole('heading', { name: 'Tus datos' });
   const buyerFields: Record<string, string> = {
     'Nombre completo': 'Cliente Prueba',
@@ -364,6 +369,9 @@ it('contratos independientes sin preselección, errores junto a campos y tarjeta
     fireEvent.change(screen.getByLabelText(label), { target: { value } });
   fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
   await screen.findByText('Datos de entrega');
+  expect(
+    screen.getByRole('button', { name: 'Comprador, completado' }),
+  ).toBeEnabled();
   expect(
     screen.getByRole('link', { name: 'contrato de pago' }),
   ).toHaveAttribute('href', config.acceptance.policyUrl);

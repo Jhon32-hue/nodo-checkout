@@ -24,10 +24,22 @@ export function Summary({
 }) {
   return (
     <>
-      <p className={styles.muted}>
-        Revisa los importes antes de confirmar. Todos los valores en COP.
-      </p>
-      <div className={styles.orderProduct}>
+      <section
+        className={styles.summarySection}
+        aria-labelledby="summary-title"
+      >
+        <div className={styles.summaryHeading}>
+          <div>
+            <span>Último paso</span>
+            <h3 id="summary-title">Revisa tu compra</h3>
+          </div>
+          <strong>{money(s.totalCents)}</strong>
+        </div>
+        <p className={styles.muted}>
+          Confirma producto, cantidad e importes calculados por la tienda.
+        </p>
+      </section>
+      <div className={styles.orderProduct} aria-label="Producto seleccionado">
         {product ? (
           <img
             src={productImage(product)}
@@ -95,7 +107,19 @@ export function Summary({
           <Button variant="text" disabled={busy} onClick={onEdit}>
             Volver a tarjeta y entrega
           </Button>
-          <p className={styles.security}>Pago de prueba · Wompi sandbox</p>
+          {busy && (
+            <p
+              className={styles.operationStatus}
+              role="status"
+              aria-live="polite"
+            >
+              Estamos procesando la operación. No cierres esta ventana ni pulses
+              nuevamente.
+            </p>
+          )}
+          <p className={styles.security}>
+            Compra de prueba con datos ficticios.
+          </p>
         </>
       )}
     </>
