@@ -17,7 +17,8 @@ La aplicación y Swagger están publicados en AWS con HTTPS, usando únicamente 
 
 ## Probar una compra Sandbox
 
-Usa exclusivamente datos ficticios y las [tarjetas oficiales de Sandbox](https://docs.wompi.co/docs/colombia/datos-de-prueba-en-sandbox/):
+Usa exclusivamente datos ficticios y las siguientes tarjetas de prueba admitidas
+por el proveedor de pagos en Sandbox:
 
 - Aprobación: **4242 4242 4242 4242**.
 - Rechazo: **4111 1111 1111 1111**.
@@ -31,7 +32,7 @@ la aprobación o el rechazo: tokeniza con el proveedor y consulta nuestra API.
    dos contratos enlazados. Navegar entre pasos no cobra.
 3. Revisa producto, cantidad, subtotal, tarifa base, entrega y total en el
    resumen sobre backdrop. Todos los importes proceden del servidor.
-4. Confirma el pago: la SPA tokeniza directamente con Wompi; la API crea el
+4. Confirma el pago: la SPA tokeniza directamente con el proveedor; la API crea el
    intento `PENDING` y su reserva antes de solicitar el cobro.
 5. La API verifica el resultado. Una aprobación confirma la reserva, descuenta
    stock y registra una entrega; un rechazo confirmado libera la reserva.
@@ -59,13 +60,13 @@ La configuración del backend debe tener credenciales válidas del UAT de la pru
 | Frontend | React, TypeScript, Vite, Redux Toolkit/React Redux y Material UI |
 | API      | NestJS 11, TypeScript, casos de uso, puertos y adaptadores       |
 | Datos    | PostgreSQL 17 y TypeORM 1.1.3                                    |
-| Pagos    | Wompi UAT Sandbox; cifrado/tokenización desde la SPA             |
+| Pagos    | Proveedor de pagos en Sandbox; cifrado/tokenización desde la SPA |
 | Pruebas  | Jest en ambos proyectos; integración PostgreSQL y e2e separadas  |
 
 La SPA usa Redux siguiendo Flux para catálogo, carrito, progreso y vistas públicas.
 React Hook Form/Zod gestionan el formulario; CSS Modules, Flexbox/Grid y Material UI
 resuelven la presentación. La SPA consulta la API; solo la tokenización va directamente
-al proveedor. La API persiste en PostgreSQL y envía/consulta los cobros en Wompi.
+al proveedor. La API persiste en PostgreSQL y envía/consulta los cobros con ese proveedor.
 
 En backend, dominio y aplicación no dependen de TypeORM ni HTTP. Los casos de uso
 componen `Result`/`ResultAsync` de neverthrow; controllers, stores y gateway son
@@ -139,8 +140,9 @@ npm run start:dev
 
 Antes de arrancar, configura en `.env`: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`,
 `DB_PASSWORD`, `PORT`, `CSRF_SECRET` y `FRONTEND_ORIGINS`.
-Para pagar añade `WOMPI_BASE_URL`, `WOMPI_PUBLIC_KEY`, `WOMPI_PRIVATE_KEY` y
-`WOMPI_INTEGRITY_SECRET`, obtenidas por un canal privado para el UAT autorizado.
+Para pagar, configura las variables de integración con sus nombres exactos según
+[.env.example](.env.example), sin renombrarlas. Obtén sus valores por un canal
+privado para el UAT autorizado.
 `CSRF_SECRET` debe tener al menos 32 caracteres y conservarse entre reinicios.
 No copies credenciales al repositorio. El entorno del proceso tiene prioridad
 sobre `.env` del directorio de ejecución y el del padre.
