@@ -108,10 +108,15 @@ de una línea. No se tokeniza en el backend ni se incluyen PAN/CVC en solicitude
 hacia nuestra API.
 
 `localStorage` guarda solo checkoutId, transactionId, paso y clave de idempotencia,
-validados con Zod. Redux no se persiste y DevTools está desactivado. Tarjeta,
-token y contratos quedan en memoria temporal del formulario/coordinador, fuera de
-Redux y de argumentos de acciones/thunks. Refresh recupera sesión, compra e intento
-desde la API aunque falle el catálogo; usa el resumen histórico si está disponible.
+validados con Zod. Redux no se persiste y DevTools está desactivado. En el
+navegador, tarjeta, token, contratos, comprador y entrega permanecen solo en la
+memoria temporal del formulario/coordinador, fuera de Redux, Local Storage,
+Session Storage y argumentos de acciones. Al guardar el borrador, el backend
+persiste comprador y destino en PostgreSQL y solo permite recuperarlos con la
+sesión invitada propietaria. Al crear el intento, los snapshots financieros y los
+datos históricos necesarios quedan asociados a la transacción. Refresh recupera
+sesión, compra e intento desde la API aunque falle el catálogo; usa el resumen
+histórico si está disponible.
 NOT_SENT solicita tarjeta otra vez; UNKNOWN e
 IN_FLIGHT no ofrecen reenviar el pago. Un resultado incierto conserva el intento
 al volver al catálogo. Polling serial, visible y limitado a ocho consultas por
@@ -150,6 +155,94 @@ fallback de imagen, diálogo, foco restaurado, etiquetas y errores accesibles.
 Las aprobaciones
 y el rechazo UAT de la sección siguiente son ensayos anteriores del backend.
 No hubo cambios en código, dependencias ni esquema del backend en este bloque.
+
+## Observar el recorrido financiero local
+
+Los logs de Nest usan JSON con una lista cerrada de metadatos. Los eventos
+principales son `transaction.created`, `reservation.held`, `payment.claimed`,
+`provider.request.started`, `provider.response.received`,
+`provider.transaction.saved`, `payment.sync.started`,
+`payment.finalized.approved`/`declined`, `payment.unknown`,
+`inventory.confirmed`, `reservation.released` y `delivery.created`. Se generan
+después del commit SQL correspondiente; el request al proveedor comienza solo
+después de confirmar el claim `IN_FLIGHT`. Ejemplo sanitizado:
+
+```json
+{
+  "timestamp": "2026-11-26T20:00:00.000Z",
+  "event": "provider.response.received",
+  "transactionId": "00000000-0000-4000-8000-000000000000",
+  "reference": "pc_example",
+  "providerEnvironment": "UAT_SANDBOX",
+  "providerHttpStatus": 201,
+  "durationMs": 240,
+  "errorCode": "VALIDATED",
+  "operation": "creation",
+  "providerTransactionFingerprint": "0123456789abcdef"
+}
+```
+
+El fingerprint es un prefijo de SHA-256 para correlación; nunca es el ID remoto.
+No se registran cuerpos, Authorization, cookies, sesión, comprador, dirección,
+PAN, CVC, token/JWE, aceptaciones ni claves. Para inspeccionar una transacción ya
+existente sin escribir, migrar ni ejecutar seed:
+
+```powershell
+Set-Location backend
+npm run inspect:transaction -- <transactionId>
+```
+
+El script valida un UUID, abre una transacción PostgreSQL `READ ONLY` y usa `$1`
+parametrizado. Devuelve intento, checkout, reserva, stock físico, reservas HELD
+activas, disponibilidad calculada, entrega, timestamps e importes tanto en
+centavos COP enteros como formateados en pesos COP. Omite snapshots personales,
+evidencias de aceptación, hashes internos y el ID remoto en claro.
+
+Runbook de observación:
+
+1. Desde la raíz, `docker compose up -d db`; no ejecutar seed sobre una base con
+   compras que se quieran conservar.
+2. Iniciar backend con `npm run start:dev` desde `backend` y seguir sus logs. TLS
+   del proveedor permanece validado; nunca usar `NODE_TLS_REJECT_UNAUTHORIZED=0`.
+3. Iniciar `npm run dev` desde `frontend` y abrir `http://localhost:5173`.
+4. Crear una compra con datos ficticios sandbox. El frontend recibe el
+   `transactionId` antes de llamar `POST /transactions/:id/pay`.
+5. Copiar ese ID desde la respuesta de nuestra API o la pantalla de resultado y
+   ejecutar `npm run inspect:transaction -- <transactionId>`.
+6. Consultar `GET /api/v1/transactions/:id` con la cookie invitada. Usar
+   `POST /api/v1/transactions/:id/sync` solo si el intento ya fue enviado;
+   historial, detalle y sync nunca vuelven a ejecutar `pay`.
+7. Comparar transacción, reserva, `products.stock`, disponibilidad y entrega. Un
+   aprobado debe quedar `APPROVED`/`SUBMITTED`, `CONFIRMED`, stock descontado y
+   entrega `READY`; un rechazo confirmado libera la reserva sin descontar stock.
+
+Estados que no deben confundirse:
+
+| Dimensión                | Valores y significado                                                                                      |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| Estado interno           | `PENDING` hasta una observación verificada; luego `APPROVED`, `DECLINED`, `VOIDED`, `ERROR` o `EXPIRED`    |
+| `dispatchStatus`         | `NOT_SENT` sin HTTP; `IN_FLIGHT` claim confirmado; `SUBMITTED` con ID remoto; `UNKNOWN` resultado incierto |
+| Estado remoto verificado | `PENDING`, `APPROVED`, `DECLINED` o `ERROR` (también se normaliza `VOIDED`)                                |
+| Reserva                  | `HELD` compromete disponibilidad; `CONFIRMED` acompaña aprobación; `RELEASED` deja de comprometerla        |
+
+### Inspección del navegador
+
+En Chrome DevTools revisar **Application -> Local Storage**: `nodo.checkout.v1`
+solo puede contener `checkoutId`, `transactionId`, `idempotencyKey` y `step`;
+`nodo.cart.v1`, `productId` y `quantity`. **Session Storage** debe estar vacío.
+En **Cookies** es normal encontrar `checkout_session`: es HttpOnly, SameSite=Lax,
+vence a las 24 h y usa Secure cuando el origen es HTTPS; JavaScript no puede leer
+su valor. En **Redux DevTools** no debe aparecer el store porque está desactivado;
+el estado Redux contiene catálogo, checkout público sin comprador/entrega,
+resumen, intento, historial, carrito y estado visual.
+
+En **Network**, nuestras rutas `/api/v1` pueden mostrar IDs, resumen e información
+que el usuario acaba de enviar al borrador. La tokenización va directamente al
+host UAT del proveedor. Nunca deben aparecer PAN/CVC en llamadas a nuestra API,
+ni tarjeta, token/JWE, claves, aceptaciones, comprador o dirección en Redux,
+acciones Redux, Local Storage o Session Storage. La pestaña Network puede mostrar
+el payload cifrado/token efímero hacia el proveedor durante la operación; no debe
+copiarse ni persistirse.
 
 ## Probar catálogo en Swagger
 

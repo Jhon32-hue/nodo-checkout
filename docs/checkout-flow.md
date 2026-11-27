@@ -169,11 +169,15 @@ escrituras; emitir/recuperar CSRF al iniciar sesión. Mismo origen en AWS; en Vi
 local usar el proxy Vite /api, conservando Origin y cookie del mismo origen.
 
 localStorage conserva solo checkoutId/transactionId/paso y clave de idempotencia;
-Redux no se persiste. Tras refresh,
-recuperar sesión/CSRF y consultar backend; no persistir comprador, dirección,
-tokens o tarjeta en localStorage. Si cookie vence, no recuperar PII por UUID;
-resolver pagos pendientes mediante proveedor/revisión aunque el cliente ya no
-pueda acceder. No hay cuentas ni recuperación por email en este alcance.
+Redux no se persiste. En el navegador, comprador y entrega viven solo en memoria
+del formulario y, igual que tarjeta y tokens, nunca se guardan en Redux, Local
+Storage o Session Storage. El backend sí persiste comprador y destino en
+PostgreSQL para restaurar el checkout, siempre autorizado por la sesión invitada;
+al crear el intento, los snapshots financieros quedan asociados a la transacción.
+Tras refresh, recuperar sesión/CSRF y consultar backend. Si cookie vence, no
+recuperar PII por UUID; resolver pagos pendientes mediante proveedor/revisión
+aunque el cliente ya no pueda acceder. No hay cuentas ni recuperación por email
+en este alcance.
 
 «Mis compras» consulta los intentos de la sesión invitada actual, ordenados del
 más reciente al más antiguo, y permite abrir el detalle con las lecturas existentes.
