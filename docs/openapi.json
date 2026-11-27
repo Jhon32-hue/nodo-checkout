@@ -5,11 +5,7 @@
       "get": {
         "operationId": "AppController_getHello",
         "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
+        "responses": { "200": { "description": "" } },
         "tags": ["App"]
       }
     },
@@ -86,9 +82,7 @@
             "description": "Producto activo con su precio en centavos COP y disponibilidad, incluso si está agotado.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProductEnvelopeDto"
-                }
+                "schema": { "$ref": "#/components/schemas/ProductEnvelopeDto" }
               }
             }
           },
@@ -168,27 +162,21 @@
             "in": "header",
             "description": "Obligatorio en POST/PATCH de compra",
             "required": false,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "Origin",
             "in": "header",
             "description": "Origen permitido, obligatorio para escrituras",
             "required": false,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "Cookie",
             "in": "header",
             "description": "checkout_session recibida al crear sesiÃ³n",
             "required": false,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           }
         ],
         "responses": {
@@ -204,13 +192,8 @@
                       "type": "object",
                       "required": ["csrfToken", "expiresAt"],
                       "properties": {
-                        "csrfToken": {
-                          "type": "string"
-                        },
-                        "expiresAt": {
-                          "type": "string",
-                          "format": "date-time"
-                        }
+                        "csrfToken": { "type": "string" },
+                        "expiresAt": { "type": "string", "format": "date-time" }
                       }
                     }
                   }
@@ -230,13 +213,8 @@
                       "type": "object",
                       "required": ["csrfToken", "expiresAt"],
                       "properties": {
-                        "csrfToken": {
-                          "type": "string"
-                        },
-                        "expiresAt": {
-                          "type": "string",
-                          "format": "date-time"
-                        }
+                        "csrfToken": { "type": "string" },
+                        "expiresAt": { "type": "string", "format": "date-time" }
                       }
                     }
                   }
@@ -244,27 +222,13 @@
               }
             }
           },
-          "400": {
-            "description": "Formato o campos no admitidos."
-          },
-          "401": {
-            "description": "SesiÃ³n ausente o vencida."
-          },
-          "403": {
-            "description": "Origin o CSRF invÃ¡lidos."
-          },
-          "404": {
-            "description": "Recurso inexistente o de otra sesiÃ³n."
-          },
-          "409": {
-            "description": "Compra bloqueada para ediciÃ³n."
-          },
-          "422": {
-            "description": "Reglas de negocio o compra incompleta."
-          },
-          "503": {
-            "description": "Persistencia temporalmente no disponible."
-          }
+          "400": { "description": "Formato o campos no admitidos." },
+          "401": { "description": "SesiÃ³n ausente o vencida." },
+          "403": { "description": "Origin o CSRF invÃ¡lidos." },
+          "404": { "description": "Recurso inexistente o de otra sesiÃ³n." },
+          "409": { "description": "Compra bloqueada para ediciÃ³n." },
+          "422": { "description": "Reglas de negocio o compra incompleta." },
+          "503": { "description": "Persistencia temporalmente no disponible." }
         },
         "summary": "Crear o recuperar sesiÃ³n guest sin renovar vencimiento",
         "tags": ["checkout"]
@@ -279,36 +243,28 @@
             "in": "header",
             "description": "Obligatorio en POST/PATCH de compra",
             "required": false,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "Origin",
             "in": "header",
             "description": "Origen permitido, obligatorio para escrituras",
             "required": false,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "Cookie",
             "in": "header",
             "description": "checkout_session recibida al crear sesiÃ³n",
             "required": false,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateCheckoutDto"
-              }
+              "schema": { "$ref": "#/components/schemas/CreateCheckoutDto" }
             }
           }
         },
@@ -335,14 +291,8 @@
                         "deliveryId"
                       ],
                       "properties": {
-                        "id": {
-                          "type": "string",
-                          "format": "uuid"
-                        },
-                        "productId": {
-                          "type": "string",
-                          "format": "uuid"
-                        },
+                        "id": { "type": "string", "format": "uuid" },
+                        "productId": { "type": "string", "format": "uuid" },
                         "quantity": {
                           "type": "integer",
                           "minimum": 1,
@@ -354,9 +304,7 @@
                         },
                         "buyer": {
                           "oneOf": [
-                            {
-                              "$ref": "#/components/schemas/BuyerDto"
-                            },
+                            { "$ref": "#/components/schemas/BuyerDto" },
                             {
                               "type": "object",
                               "nullable": true,
@@ -366,9 +314,7 @@
                         },
                         "delivery": {
                           "oneOf": [
-                            {
-                              "$ref": "#/components/schemas/DeliveryDto"
-                            },
+                            { "$ref": "#/components/schemas/DeliveryDto" },
                             {
                               "type": "object",
                               "nullable": true,
@@ -398,27 +344,13 @@
               }
             }
           },
-          "400": {
-            "description": "Formato o campos no admitidos."
-          },
-          "401": {
-            "description": "SesiÃ³n ausente o vencida."
-          },
-          "403": {
-            "description": "Origin o CSRF invÃ¡lidos."
-          },
-          "404": {
-            "description": "Recurso inexistente o de otra sesiÃ³n."
-          },
-          "409": {
-            "description": "Compra bloqueada para ediciÃ³n."
-          },
-          "422": {
-            "description": "Reglas de negocio o compra incompleta."
-          },
-          "503": {
-            "description": "Persistencia temporalmente no disponible."
-          }
+          "400": { "description": "Formato o campos no admitidos." },
+          "401": { "description": "SesiÃ³n ausente o vencida." },
+          "403": { "description": "Origin o CSRF invÃ¡lidos." },
+          "404": { "description": "Recurso inexistente o de otra sesiÃ³n." },
+          "409": { "description": "Compra bloqueada para ediciÃ³n." },
+          "422": { "description": "Reglas de negocio o compra incompleta." },
+          "503": { "description": "Persistencia temporalmente no disponible." }
         },
         "summary": "Seleccionar producto/cantidad; crear DRAFT sin reservar",
         "tags": ["checkout"]
@@ -433,36 +365,27 @@
             "in": "header",
             "description": "Obligatorio en POST/PATCH de compra",
             "required": false,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "Origin",
             "in": "header",
             "description": "Origen permitido, obligatorio para escrituras",
             "required": false,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "Cookie",
             "in": "header",
             "description": "checkout_session recibida al crear sesiÃ³n",
             "required": false,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "id",
             "required": true,
             "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
+            "schema": { "format": "uuid", "type": "string" }
           }
         ],
         "responses": {
@@ -488,14 +411,8 @@
                         "deliveryId"
                       ],
                       "properties": {
-                        "id": {
-                          "type": "string",
-                          "format": "uuid"
-                        },
-                        "productId": {
-                          "type": "string",
-                          "format": "uuid"
-                        },
+                        "id": { "type": "string", "format": "uuid" },
+                        "productId": { "type": "string", "format": "uuid" },
                         "quantity": {
                           "type": "integer",
                           "minimum": 1,
@@ -507,9 +424,7 @@
                         },
                         "buyer": {
                           "oneOf": [
-                            {
-                              "$ref": "#/components/schemas/BuyerDto"
-                            },
+                            { "$ref": "#/components/schemas/BuyerDto" },
                             {
                               "type": "object",
                               "nullable": true,
@@ -519,9 +434,7 @@
                         },
                         "delivery": {
                           "oneOf": [
-                            {
-                              "$ref": "#/components/schemas/DeliveryDto"
-                            },
+                            { "$ref": "#/components/schemas/DeliveryDto" },
                             {
                               "type": "object",
                               "nullable": true,
@@ -551,27 +464,13 @@
               }
             }
           },
-          "400": {
-            "description": "Formato o campos no admitidos."
-          },
-          "401": {
-            "description": "SesiÃ³n ausente o vencida."
-          },
-          "403": {
-            "description": "Origin o CSRF invÃ¡lidos."
-          },
-          "404": {
-            "description": "Recurso inexistente o de otra sesiÃ³n."
-          },
-          "409": {
-            "description": "Compra bloqueada para ediciÃ³n."
-          },
-          "422": {
-            "description": "Reglas de negocio o compra incompleta."
-          },
-          "503": {
-            "description": "Persistencia temporalmente no disponible."
-          }
+          "400": { "description": "Formato o campos no admitidos." },
+          "401": { "description": "SesiÃ³n ausente o vencida." },
+          "403": { "description": "Origin o CSRF invÃ¡lidos." },
+          "404": { "description": "Recurso inexistente o de otra sesiÃ³n." },
+          "409": { "description": "Compra bloqueada para ediciÃ³n." },
+          "422": { "description": "Reglas de negocio o compra incompleta." },
+          "503": { "description": "Persistencia temporalmente no disponible." }
         },
         "summary": "Recuperar compra propia desde PostgreSQL",
         "tags": ["checkout"]
@@ -584,45 +483,34 @@
             "in": "header",
             "description": "Obligatorio en POST/PATCH de compra",
             "required": false,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "Origin",
             "in": "header",
             "description": "Origen permitido, obligatorio para escrituras",
             "required": false,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "Cookie",
             "in": "header",
             "description": "checkout_session recibida al crear sesiÃ³n",
             "required": false,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "id",
             "required": true,
             "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
+            "schema": { "format": "uuid", "type": "string" }
           }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PatchCheckoutDto"
-              }
+              "schema": { "$ref": "#/components/schemas/PatchCheckoutDto" }
             }
           }
         },
@@ -649,14 +537,8 @@
                         "deliveryId"
                       ],
                       "properties": {
-                        "id": {
-                          "type": "string",
-                          "format": "uuid"
-                        },
-                        "productId": {
-                          "type": "string",
-                          "format": "uuid"
-                        },
+                        "id": { "type": "string", "format": "uuid" },
+                        "productId": { "type": "string", "format": "uuid" },
                         "quantity": {
                           "type": "integer",
                           "minimum": 1,
@@ -668,9 +550,7 @@
                         },
                         "buyer": {
                           "oneOf": [
-                            {
-                              "$ref": "#/components/schemas/BuyerDto"
-                            },
+                            { "$ref": "#/components/schemas/BuyerDto" },
                             {
                               "type": "object",
                               "nullable": true,
@@ -680,9 +560,7 @@
                         },
                         "delivery": {
                           "oneOf": [
-                            {
-                              "$ref": "#/components/schemas/DeliveryDto"
-                            },
+                            { "$ref": "#/components/schemas/DeliveryDto" },
                             {
                               "type": "object",
                               "nullable": true,
@@ -712,27 +590,13 @@
               }
             }
           },
-          "400": {
-            "description": "Formato o campos no admitidos."
-          },
-          "401": {
-            "description": "SesiÃ³n ausente o vencida."
-          },
-          "403": {
-            "description": "Origin o CSRF invÃ¡lidos."
-          },
-          "404": {
-            "description": "Recurso inexistente o de otra sesiÃ³n."
-          },
-          "409": {
-            "description": "Compra bloqueada para ediciÃ³n."
-          },
-          "422": {
-            "description": "Reglas de negocio o compra incompleta."
-          },
-          "503": {
-            "description": "Persistencia temporalmente no disponible."
-          }
+          "400": { "description": "Formato o campos no admitidos." },
+          "401": { "description": "SesiÃ³n ausente o vencida." },
+          "403": { "description": "Origin o CSRF invÃ¡lidos." },
+          "404": { "description": "Recurso inexistente o de otra sesiÃ³n." },
+          "409": { "description": "Compra bloqueada para ediciÃ³n." },
+          "422": { "description": "Reglas de negocio o compra incompleta." },
+          "503": { "description": "Persistencia temporalmente no disponible." }
         },
         "summary": "Guardar campos completos del borrador atÃ³micamente",
         "tags": ["checkout"]
@@ -747,36 +611,27 @@
             "in": "header",
             "description": "Obligatorio en POST/PATCH de compra",
             "required": false,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "Origin",
             "in": "header",
             "description": "Origen permitido, obligatorio para escrituras",
             "required": false,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "Cookie",
             "in": "header",
             "description": "checkout_session recibida al crear sesiÃ³n",
             "required": false,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "id",
             "required": true,
             "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
+            "schema": { "format": "uuid", "type": "string" }
           }
         ],
         "responses": {
@@ -800,28 +655,13 @@
                         "currency"
                       ],
                       "properties": {
-                        "quantity": {
-                          "type": "integer"
-                        },
-                        "unitPriceCents": {
-                          "type": "integer"
-                        },
-                        "subtotalCents": {
-                          "type": "integer"
-                        },
-                        "baseFeeCents": {
-                          "type": "integer"
-                        },
-                        "deliveryFeeCents": {
-                          "type": "integer"
-                        },
-                        "totalCents": {
-                          "type": "integer"
-                        },
-                        "currency": {
-                          "type": "string",
-                          "enum": ["COP"]
-                        }
+                        "quantity": { "type": "integer" },
+                        "unitPriceCents": { "type": "integer" },
+                        "subtotalCents": { "type": "integer" },
+                        "baseFeeCents": { "type": "integer" },
+                        "deliveryFeeCents": { "type": "integer" },
+                        "totalCents": { "type": "integer" },
+                        "currency": { "type": "string", "enum": ["COP"] }
                       }
                     }
                   },
@@ -840,33 +680,38 @@
               }
             }
           },
-          "400": {
-            "description": "Formato o campos no admitidos."
-          },
-          "401": {
-            "description": "SesiÃ³n ausente o vencida."
-          },
-          "403": {
-            "description": "Origin o CSRF invÃ¡lidos."
-          },
-          "404": {
-            "description": "Recurso inexistente o de otra sesiÃ³n."
-          },
-          "409": {
-            "description": "Compra bloqueada para ediciÃ³n."
-          },
-          "422": {
-            "description": "Reglas de negocio o compra incompleta."
-          },
-          "503": {
-            "description": "Persistencia temporalmente no disponible."
-          }
+          "400": { "description": "Formato o campos no admitidos." },
+          "401": { "description": "SesiÃ³n ausente o vencida." },
+          "403": { "description": "Origin o CSRF invÃ¡lidos." },
+          "404": { "description": "Recurso inexistente o de otra sesiÃ³n." },
+          "409": { "description": "Compra bloqueada para ediciÃ³n." },
+          "422": { "description": "Reglas de negocio o compra incompleta." },
+          "503": { "description": "Persistencia temporalmente no disponible." }
         },
         "summary": "Resumen calculado en centavos COP; histÃ³rico si hay intento activo/aprobado",
         "tags": ["checkout"]
       }
     },
     "/api/v1/transactions": {
+      "get": {
+        "operationId": "TransactionsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Payment attempts owned by the current guest session, newest first. Read-only and never contacts the provider.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseHistoryResponseDto"
+                }
+              }
+            }
+          },
+          "401": { "description": "Missing or expired session." },
+          "503": { "description": "Sanitized persistence failure." }
+        },
+        "tags": ["transactions"]
+      },
       "post": {
         "operationId": "TransactionsController_create",
         "parameters": [
@@ -874,35 +719,26 @@
             "name": "X-CSRF-Token",
             "in": "header",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "Origin",
             "in": "header",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "Idempotency-Key",
             "in": "header",
             "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
+            "schema": { "type": "string", "format": "uuid" }
           }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateTransactionDto"
-              }
+              "schema": { "$ref": "#/components/schemas/CreateTransactionDto" }
             }
           }
         },
@@ -911,23 +747,15 @@
             "description": "PENDING with HELD reservation, or same attempt on identical replay.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AttemptResponseDto"
-                }
+                "schema": { "$ref": "#/components/schemas/AttemptResponseDto" }
               }
             }
           },
-          "400": {
-            "description": "Invalid UUID, fields or types."
-          },
-          "401": {
-            "description": "Missing or expired session."
-          },
-          "403": {
-            "description": "Invalid Origin or CSRF."
-          },
+          "400": { "description": "Invalid fields or types." },
+          "401": { "description": "Missing or expired session." },
+          "403": { "description": "Invalid Origin or CSRF." },
           "404": {
-            "description": "Missing resource or foreign checkout/attempt; inactive product on creation."
+            "description": "Foreign checkout or inactive/missing product."
           },
           "409": {
             "description": "IDEMPOTENCY_CONFLICT, CHECKOUT_LOCKED, SUMMARY_CHANGED or INSUFFICIENT_STOCK."
@@ -935,9 +763,7 @@
           "422": {
             "description": "Incomplete or invalid business data/amounts."
           },
-          "503": {
-            "description": "Sanitized persistence failure."
-          }
+          "503": { "description": "Sanitized persistence failure." }
         },
         "tags": ["transactions"]
       }
@@ -950,9 +776,7 @@
             "name": "id",
             "required": true,
             "in": "path",
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           }
         ],
         "responses": {
@@ -960,24 +784,14 @@
             "description": "Historical amounts, reference, dates and reservation state; never writes or contacts provider.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DetailsResponseDto"
-                }
+                "schema": { "$ref": "#/components/schemas/DetailsResponseDto" }
               }
             }
           },
-          "400": {
-            "description": "Invalid UUID, fields or types."
-          },
-          "401": {
-            "description": "Missing or expired session."
-          },
-          "404": {
-            "description": "Missing resource or foreign checkout/attempt; inactive product on creation."
-          },
-          "503": {
-            "description": "Sanitized persistence failure."
-          }
+          "400": { "description": "Invalid transaction UUID." },
+          "401": { "description": "Missing or expired session." },
+          "404": { "description": "Missing or foreign transaction." },
+          "503": { "description": "Sanitized persistence failure." }
         },
         "tags": ["transactions"]
       }
@@ -988,21 +802,15 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": "data: environment=UAT_SANDBOX, publicKey, tokenizationUrl, installments=1, acceptance with acceptanceToken, personalAuthToken, policyUrl and personalDataUrl. No private credentials.",
+            "description": "data: environment=UAT_SANDBOX, publicKey, tokenizationPublicKey, tokenizationUrl, installments=1, acceptance with acceptanceToken, personalAuthToken, policyUrl and personalDataUrl. No private credentials.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConfigResponseDto"
-                }
+                "schema": { "$ref": "#/components/schemas/ConfigResponseDto" }
               }
             }
           },
-          "400": {
-            "description": "Unsupported fields or input format."
-          },
-          "401": {
-            "description": "Missing or expired guest session."
-          },
+          "400": { "description": "Unsupported fields or input format." },
+          "401": { "description": "Missing or expired guest session." },
           "503": {
             "description": "Sanitized provider or persistence error; never authorizes another charge."
           }
@@ -1018,34 +826,26 @@
             "name": "id",
             "required": true,
             "in": "path",
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "X-CSRF-Token",
             "in": "header",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "Origin",
             "in": "header",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PayDto"
-              }
+              "schema": { "$ref": "#/components/schemas/PayDto" }
             }
           }
         },
@@ -1054,9 +854,7 @@
             "description": "data: local attempt view after verified final result or replay.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AttemptResponseDto"
-                }
+                "schema": { "$ref": "#/components/schemas/AttemptResponseDto" }
               }
             }
           },
@@ -1064,30 +862,18 @@
             "description": "data: local pending/uncertain attempt; Retry-After 5; no resend.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AttemptResponseDto"
-                }
+                "schema": { "$ref": "#/components/schemas/AttemptResponseDto" }
               }
             }
           },
-          "400": {
-            "description": "Unsupported fields or input format."
-          },
-          "401": {
-            "description": "Missing or expired guest session."
-          },
-          "403": {
-            "description": "Invalid Origin/CSRF."
-          },
-          "404": {
-            "description": "Missing or foreign attempt."
-          },
+          "400": { "description": "Unsupported fields or input format." },
+          "401": { "description": "Missing or expired guest session." },
+          "403": { "description": "Invalid Origin/CSRF." },
+          "404": { "description": "Missing or foreign attempt." },
           "409": {
             "description": "PAYLOAD_CONFLICT, RESERVATION_EXPIRED, OBSERVATION_CONFLICT or CHECKOUT_LOCKED."
           },
-          "422": {
-            "description": "Invalid acceptance or payment input."
-          },
+          "422": { "description": "Invalid acceptance or payment input." },
           "503": {
             "description": "Sanitized provider or persistence error; never authorizes another charge."
           }
@@ -1103,25 +889,19 @@
             "name": "id",
             "required": true,
             "in": "path",
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "X-CSRF-Token",
             "in": "header",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           },
           {
             "name": "Origin",
             "in": "header",
             "required": true,
-            "schema": {
-              "type": "string"
-            }
+            "schema": { "type": "string" }
           }
         ],
         "responses": {
@@ -1129,9 +909,7 @@
             "description": "data: final or NOT_SENT local attempt, no charge initiated.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AttemptResponseDto"
-                }
+                "schema": { "$ref": "#/components/schemas/AttemptResponseDto" }
               }
             }
           },
@@ -1139,24 +917,14 @@
             "description": "data: pending/uncertain local attempt; Retry-After 5.",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AttemptResponseDto"
-                }
+                "schema": { "$ref": "#/components/schemas/AttemptResponseDto" }
               }
             }
           },
-          "400": {
-            "description": "Unsupported fields or input format."
-          },
-          "401": {
-            "description": "Missing or expired guest session."
-          },
-          "403": {
-            "description": "Invalid Origin/CSRF."
-          },
-          "404": {
-            "description": "Missing or foreign attempt."
-          },
+          "400": { "description": "Unsupported fields or input format." },
+          "401": { "description": "Missing or expired guest session." },
+          "403": { "description": "Invalid Origin/CSRF." },
+          "404": { "description": "Missing or foreign attempt." },
           "409": {
             "description": "Contradictory observation; retained for review."
           },
@@ -1186,11 +954,7 @@
             "format": "uuid",
             "example": "11111111-1111-4111-8111-111111111111"
           },
-          "sku": {
-            "type": "string",
-            "example": "AUD-001",
-            "maxLength": 64
-          },
+          "sku": { "type": "string", "example": "AUD-001", "maxLength": 64 },
           "category": {
             "type": "string",
             "enum": [
@@ -1226,11 +990,7 @@
             "minimum": 1,
             "maximum": 2000000000
           },
-          "currency": {
-            "type": "string",
-            "enum": ["COP"],
-            "example": "COP"
-          },
+          "currency": { "type": "string", "enum": ["COP"], "example": "COP" },
           "available": {
             "type": "integer",
             "example": 10,
@@ -1255,9 +1015,7 @@
         "properties": {
           "items": {
             "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ProductDto"
-            }
+            "items": { "$ref": "#/components/schemas/ProductDto" }
           }
         },
         "required": ["items"]
@@ -1265,9 +1023,7 @@
       "ProductListEnvelopeDto": {
         "type": "object",
         "properties": {
-          "data": {
-            "$ref": "#/components/schemas/ProductListDto"
-          }
+          "data": { "$ref": "#/components/schemas/ProductListDto" }
         },
         "required": ["data"]
       },
@@ -1283,44 +1039,27 @@
               "CATALOG_UNAVAILABLE"
             ]
           },
-          "message": {
-            "type": "string",
-            "example": "Producto no encontrado."
-          }
+          "message": { "type": "string", "example": "Producto no encontrado." }
         },
         "required": ["code", "message"]
       },
       "CatalogErrorEnvelopeDto": {
         "type": "object",
         "properties": {
-          "error": {
-            "$ref": "#/components/schemas/CatalogErrorDto"
-          }
+          "error": { "$ref": "#/components/schemas/CatalogErrorDto" }
         },
         "required": ["error"]
       },
       "ProductEnvelopeDto": {
         "type": "object",
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/ProductDto"
-          }
-        },
+        "properties": { "data": { "$ref": "#/components/schemas/ProductDto" } },
         "required": ["data"]
       },
       "BuyerDto": {
         "type": "object",
         "properties": {
-          "fullName": {
-            "type": "string",
-            "minLength": 2,
-            "maxLength": 120
-          },
-          "email": {
-            "type": "string",
-            "format": "email",
-            "maxLength": 254
-          },
+          "fullName": { "type": "string", "minLength": 2, "maxLength": 120 },
+          "email": { "type": "string", "format": "email", "maxLength": 254 },
           "phone": {
             "type": "string",
             "maxLength": 16,
@@ -1353,20 +1092,9 @@
             "minLength": 1,
             "maxLength": 200
           },
-          "city": {
-            "type": "string",
-            "minLength": 2,
-            "maxLength": 100
-          },
-          "region": {
-            "type": "string",
-            "minLength": 2,
-            "maxLength": 100
-          },
-          "country": {
-            "type": "string",
-            "enum": ["CO"]
-          },
+          "city": { "type": "string", "minLength": 2, "maxLength": 100 },
+          "region": { "type": "string", "minLength": 2, "maxLength": 100 },
+          "country": { "type": "string", "enum": ["CO"] },
           "postalCode": {
             "type": "string",
             "nullable": true,
@@ -1386,94 +1114,29 @@
       "CreateCheckoutDto": {
         "type": "object",
         "properties": {
-          "productId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "quantity": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 99
-          }
+          "productId": { "type": "string", "format": "uuid" },
+          "quantity": { "type": "integer", "minimum": 1, "maximum": 99 }
         },
         "required": ["productId", "quantity"]
       },
       "PatchCheckoutDto": {
         "type": "object",
         "properties": {
-          "quantity": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 99
-          },
-          "buyer": {
-            "$ref": "#/components/schemas/BuyerDto"
-          },
-          "delivery": {
-            "$ref": "#/components/schemas/DeliveryDto"
-          }
+          "quantity": { "type": "integer", "minimum": 1, "maximum": 99 },
+          "buyer": { "$ref": "#/components/schemas/BuyerDto" },
+          "delivery": { "$ref": "#/components/schemas/DeliveryDto" }
         }
       },
-      "AcceptedSummaryDto": {
+      "PurchaseHistoryItemDto": {
         "type": "object",
         "properties": {
-          "quantity": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 99
-          },
-          "unitPriceCents": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 2000000000
-          },
-          "baseFeeCents": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 2000000000
-          },
-          "deliveryFeeCents": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 2000000000
-          },
-          "currency": {
-            "type": "string",
-            "enum": ["COP"]
-          }
-        },
-        "required": [
-          "quantity",
-          "unitPriceCents",
-          "baseFeeCents",
-          "deliveryFeeCents",
-          "currency"
-        ]
-      },
-      "CreateTransactionDto": {
-        "type": "object",
-        "properties": {
-          "checkoutId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "acceptedSummary": {
-            "$ref": "#/components/schemas/AcceptedSummaryDto"
-          }
-        },
-        "required": ["checkoutId", "acceptedSummary"]
-      },
-      "AttemptDto": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "checkoutId": {
-            "type": "string",
-            "format": "uuid"
-          },
+          "id": { "type": "string", "format": "uuid" },
+          "checkoutId": { "type": "string", "format": "uuid" },
+          "productName": { "type": "string", "maxLength": 120 },
+          "quantity": { "type": "integer", "minimum": 1, "maximum": 99 },
+          "totalCents": { "type": "integer", "minimum": 1 },
+          "currency": { "type": "string", "enum": ["COP"] },
+          "reference": { "type": "string", "maxLength": 64 },
           "status": {
             "type": "string",
             "enum": [
@@ -1495,42 +1158,44 @@
               "NOT_CREATED"
             ]
           },
-          "reservationExpiresAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "deliveryId": {
-            "type": "string",
-            "nullable": true,
-            "format": "uuid"
-          }
+          "createdAt": { "type": "string", "format": "date-time" },
+          "deliveryId": { "type": "string", "nullable": true, "format": "uuid" }
         },
         "required": [
           "id",
           "checkoutId",
+          "productName",
+          "quantity",
+          "totalCents",
+          "currency",
+          "reference",
           "status",
           "dispatchStatus",
-          "reservationExpiresAt",
+          "createdAt",
           "deliveryId"
         ]
       },
-      "AttemptResponseDto": {
+      "PurchaseHistoryDataDto": {
         "type": "object",
         "properties": {
-          "data": {
-            "$ref": "#/components/schemas/AttemptDto"
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PurchaseHistoryItemDto" }
           }
+        },
+        "required": ["items"]
+      },
+      "PurchaseHistoryResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": { "$ref": "#/components/schemas/PurchaseHistoryDataDto" }
         },
         "required": ["data"]
       },
-      "SummaryDto": {
+      "AcceptedSummaryDto": {
         "type": "object",
         "properties": {
-          "quantity": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 99
-          },
+          "quantity": { "type": "integer", "minimum": 1, "maximum": 99 },
           "unitPriceCents": {
             "type": "integer",
             "minimum": 1,
@@ -1546,16 +1211,91 @@
             "minimum": 0,
             "maximum": 2000000000
           },
-          "currency": {
-            "type": "string",
-            "enum": ["COP"]
-          },
-          "subtotalCents": {
-            "type": "integer"
-          },
-          "totalCents": {
-            "type": "integer"
+          "currency": { "type": "string", "enum": ["COP"] }
+        },
+        "required": [
+          "quantity",
+          "unitPriceCents",
+          "baseFeeCents",
+          "deliveryFeeCents",
+          "currency"
+        ]
+      },
+      "CreateTransactionDto": {
+        "type": "object",
+        "properties": {
+          "checkoutId": { "type": "string", "format": "uuid" },
+          "acceptedSummary": {
+            "$ref": "#/components/schemas/AcceptedSummaryDto"
           }
+        },
+        "required": ["checkoutId", "acceptedSummary"]
+      },
+      "AttemptDto": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "checkoutId": { "type": "string", "format": "uuid" },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "DECLINED",
+              "VOIDED",
+              "ERROR",
+              "EXPIRED"
+            ]
+          },
+          "dispatchStatus": {
+            "type": "string",
+            "enum": [
+              "NOT_SENT",
+              "IN_FLIGHT",
+              "SUBMITTED",
+              "UNKNOWN",
+              "NOT_CREATED"
+            ]
+          },
+          "reservationExpiresAt": { "type": "string", "format": "date-time" },
+          "deliveryId": { "type": "string", "nullable": true, "format": "uuid" }
+        },
+        "required": [
+          "id",
+          "checkoutId",
+          "status",
+          "dispatchStatus",
+          "reservationExpiresAt",
+          "deliveryId"
+        ]
+      },
+      "AttemptResponseDto": {
+        "type": "object",
+        "properties": { "data": { "$ref": "#/components/schemas/AttemptDto" } },
+        "required": ["data"]
+      },
+      "SummaryDto": {
+        "type": "object",
+        "properties": {
+          "quantity": { "type": "integer", "minimum": 1, "maximum": 99 },
+          "unitPriceCents": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2000000000
+          },
+          "baseFeeCents": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2000000000
+          },
+          "deliveryFeeCents": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2000000000
+          },
+          "currency": { "type": "string", "enum": ["COP"] },
+          "subtotalCents": { "type": "integer" },
+          "totalCents": { "type": "integer" }
         },
         "required": [
           "quantity",
@@ -1570,14 +1310,8 @@
       "AttemptDetailsDto": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "checkoutId": {
-            "type": "string",
-            "format": "uuid"
-          },
+          "id": { "type": "string", "format": "uuid" },
+          "checkoutId": { "type": "string", "format": "uuid" },
           "status": {
             "type": "string",
             "enum": [
@@ -1599,25 +1333,15 @@
               "NOT_CREATED"
             ]
           },
-          "reservationExpiresAt": {
-            "type": "string",
-            "format": "date-time"
-          },
+          "reservationExpiresAt": { "type": "string", "format": "date-time" },
           "deliveryId": {
             "type": "string",
             "nullable": true,
             "format": "uuid"
           },
-          "reference": {
-            "type": "string"
-          },
-          "summary": {
-            "$ref": "#/components/schemas/SummaryDto"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
+          "reference": { "type": "string" },
+          "summary": { "$ref": "#/components/schemas/SummaryDto" },
+          "createdAt": { "type": "string", "format": "date-time" },
           "finalizedAt": {
             "type": "string",
             "nullable": true,
@@ -1627,9 +1351,7 @@
             "type": "string",
             "enum": ["HELD", "RELEASED", "CONFIRMED"]
           },
-          "reservationExpired": {
-            "type": "boolean"
-          }
+          "reservationExpired": { "type": "boolean" }
         },
         "required": [
           "id",
@@ -1649,29 +1371,17 @@
       "DetailsResponseDto": {
         "type": "object",
         "properties": {
-          "data": {
-            "$ref": "#/components/schemas/AttemptDetailsDto"
-          }
+          "data": { "$ref": "#/components/schemas/AttemptDetailsDto" }
         },
         "required": ["data"]
       },
       "PublicAcceptanceDto": {
         "type": "object",
         "properties": {
-          "acceptanceToken": {
-            "type": "string"
-          },
-          "personalAuthToken": {
-            "type": "string"
-          },
-          "policyUrl": {
-            "type": "string",
-            "format": "uri"
-          },
-          "personalDataUrl": {
-            "type": "string",
-            "format": "uri"
-          }
+          "acceptanceToken": { "type": "string" },
+          "personalAuthToken": { "type": "string" },
+          "policyUrl": { "type": "string", "format": "uri" },
+          "personalDataUrl": { "type": "string", "format": "uri" }
         },
         "required": [
           "acceptanceToken",
@@ -1683,28 +1393,20 @@
       "PublicConfigDto": {
         "type": "object",
         "properties": {
-          "environment": {
+          "environment": { "type": "string", "enum": ["UAT_SANDBOX"] },
+          "publicKey": { "type": "string" },
+          "tokenizationPublicKey": {
             "type": "string",
-            "enum": ["UAT_SANDBOX"]
+            "description": "RSA public key used only to encrypt card data in the browser."
           },
-          "publicKey": {
-            "type": "string"
-          },
-          "tokenizationUrl": {
-            "type": "string",
-            "format": "uri"
-          },
-          "installments": {
-            "type": "integer",
-            "enum": [1]
-          },
-          "acceptance": {
-            "$ref": "#/components/schemas/PublicAcceptanceDto"
-          }
+          "tokenizationUrl": { "type": "string", "format": "uri" },
+          "installments": { "type": "integer", "enum": [1] },
+          "acceptance": { "$ref": "#/components/schemas/PublicAcceptanceDto" }
         },
         "required": [
           "environment",
           "publicKey",
+          "tokenizationPublicKey",
           "tokenizationUrl",
           "installments",
           "acceptance"
@@ -1713,31 +1415,17 @@
       "ConfigResponseDto": {
         "type": "object",
         "properties": {
-          "data": {
-            "$ref": "#/components/schemas/PublicConfigDto"
-          }
+          "data": { "$ref": "#/components/schemas/PublicConfigDto" }
         },
         "required": ["data"]
       },
       "AcceptanceDto": {
         "type": "object",
         "properties": {
-          "acceptanceToken": {
-            "type": "string",
-            "maxLength": 8192
-          },
-          "personalAuthToken": {
-            "type": "string",
-            "maxLength": 8192
-          },
-          "policyAccepted": {
-            "type": "boolean",
-            "enum": [true]
-          },
-          "personalDataAccepted": {
-            "type": "boolean",
-            "enum": [true]
-          }
+          "acceptanceToken": { "type": "string", "maxLength": 8192 },
+          "personalAuthToken": { "type": "string", "maxLength": 8192 },
+          "policyAccepted": { "type": "boolean", "enum": [true] },
+          "personalDataAccepted": { "type": "boolean", "enum": [true] }
         },
         "required": [
           "acceptanceToken",
@@ -1749,17 +1437,9 @@
       "PayDto": {
         "type": "object",
         "properties": {
-          "cardToken": {
-            "type": "string",
-            "maxLength": 1024
-          },
-          "installments": {
-            "type": "integer",
-            "enum": [1]
-          },
-          "acceptance": {
-            "$ref": "#/components/schemas/AcceptanceDto"
-          }
+          "cardToken": { "type": "string", "maxLength": 1024 },
+          "installments": { "type": "integer", "enum": [1] },
+          "acceptance": { "$ref": "#/components/schemas/AcceptanceDto" }
         },
         "required": ["cardToken", "installments", "acceptance"]
       }

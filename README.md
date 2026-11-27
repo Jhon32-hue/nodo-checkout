@@ -6,12 +6,12 @@ móvil y recuperable al refrescar.
 
 ## Estado actual
 
-| Implementado                                                            | Propuesto / pendiente                          |
-| ----------------------------------------------------------------------- | ---------------------------------------------- |
-| NestJS 11, PostgreSQL 17, TypeORM 1.1.3; migraciones y seed idempotente | Webhooks, frontend y despliegue                |
-| Money COP, catálogo y disponibilidad                                    | CORS de navegador y recuperación sin ID        |
-| Sesión/CSRF, borrador/resumen, intentos/reservas y pay/sync sandbox     | SPA React y recorrido de cinco pantallas       |
-| Helmet, validación, Swagger, pruebas unitarias/SQL/e2e                  | Cobertura global >80 %, Linux y despliegue AWS |
+| Implementado                                                            | Propuesto / pendiente                                 |
+| ----------------------------------------------------------------------- | ----------------------------------------------------- |
+| NestJS 11, PostgreSQL 17, TypeORM 1.1.3; migraciones y seed idempotente | Webhooks y despliegue                                 |
+| Money COP, catálogo y disponibilidad                                    | CORS Wompi en navegador y recuperación sin ID         |
+| Sesión/CSRF, borrador/resumen, intentos/reservas y pay/sync sandbox     | Pago completo en navegador y responsive por completar |
+| Helmet, validación, Swagger, pruebas unitarias/SQL/e2e                  | Cobertura global >80 %, Linux y despliegue AWS        |
 
 Frontend acordado: React + TypeScript + Vite, Redux Toolkit/React Redux,
 React Hook Form/Zod, CSS Modules y Flexbox/Grid, Jest/React Testing Library.
@@ -60,13 +60,96 @@ CSRF_SECRET se exige al componer el módulo de checkout. FRONTEND_ORIGINS acepta
 HTTPS o HTTP de localhost/loopback en desarrollo; NODE_ENV=production exige HTTPS.
 La cookie usa Secure con el origen HTTPS permitido y solo omite Secure en HTTP
 local. En AWS inyectar el secreto y el origen HTTPS real; no usar valores locales.
-Aún no hay CORS para un navegador Vite separado: usar mismo origen/proxy cuando
-se implemente el frontend.
+Frontend usa el proxy de Vite para /api: cookies y CSRF mantienen el origen
+localhost:5173 permitido. No se añadió CORS al backend.
 Cambiar .env no cambia credenciales de un volumen PostgreSQL ya inicializado.
 Se conservan synchronize=false y migrationsRun=false: el arranque no crea tablas
 ni ejecuta migraciones. CLI y seed reutilizan validación y precedencia de entorno,
 incluyendo .env UTF-8 con BOM de Windows. Linux no se ha verificado como runtime
 del backend; PostgreSQL sí se ejecuta en contenedor Linux.
+
+## Frontend local
+
+Implementado en `frontend/`: React, TypeScript, Vite, Redux Toolkit/React Redux,
+React Hook Form/Zod, Material UI, CSS Modules y JOSE estándar. Catálogo de los diez productos
+del seed con fotos locales relacionadas por SKU, portada, cinco categorías con filtro local,
+detalle, carrito de un solo producto y modal de tarjeta, comprador y entrega,
+resumen del servidor, resultado y regreso al catálogo con disponibilidad consultada
+otra vez. No hay compras multiproducto ni cuentas.
+
+Con el backend y PostgreSQL arrancados, abrir otra terminal:
+
+```powershell
+Set-Location frontend
+npm ci
+npm run dev
+```
+
+Abrir <http://localhost:5173>. El proxy envía `/api` al backend local de puerto
+3000 y conserva Origin/cookie/CSRF. Las variables WOMPI se inyectan exclusivamente
+en el proceso del backend, como se describe abajo; no hay llaves ni secretos en
+variables VITE. La llave pública se obtiene de GET payments/config.
+Si npm no confía en la CA local de Windows, usar `$env:NODE_USE_SYSTEM_CA='1'`
+en esa terminal; no desactivar TLS.
+
+Imagen y nombre abren el detalle. Las categorías filtran la lista ya recibida de
+`GET /products`, sin enviar query al backend; «Todos» restaura la lista completa.
+Agregar al carrito desde la ficha o el listado no crea reservas ni pagos; el
+carrito guarda solo `productId` y `quantity`, y revalida ambos con el catálogo al
+refrescar. Otro producto requiere confirmar el reemplazo. Comprar ahora o continuar
+desde el carrito crea/recupera la sesión y el borrador. El botón «Pagar con tarjeta de crédito» abre primero el paso de tarjeta; «Continuar» avanza por comprador y entrega. El formulario muestra los
+dos contratos de Wompi con aceptaciones independientes. Solo usar datos ficticios
+de [prueba oficiales](https://docs.wompi.co/en/docs/colombia/datos-de-prueba-en-sandbox/).
+El resumen muestra centavos convertidos a COP, sin calcular tarifas en el cliente
+y sin tokenizar antes la tarjeta. Tras la confirmación explícita se tokeniza,
+se crea PENDING con clave UUID y se llama pay una sola vez. El cifrado
+JWE RSA-OAEP-256/A256GCM se envía directamente al UAT sandbox; se normaliza el PEM
+de una línea. No se tokeniza en el backend ni se incluyen PAN/CVC en solicitudes
+hacia nuestra API.
+
+`localStorage` guarda solo checkoutId, transactionId, paso y clave de idempotencia,
+validados con Zod. Redux no se persiste y DevTools está desactivado. Tarjeta,
+token y contratos quedan en memoria temporal del formulario/coordinador, fuera de
+Redux y de argumentos de acciones/thunks. Refresh recupera sesión, compra e intento
+desde la API aunque falle el catálogo; usa el resumen histórico si está disponible.
+NOT_SENT solicita tarjeta otra vez; UNKNOWN e
+IN_FLIGHT no ofrecen reenviar el pago. Un resultado incierto conserva el intento
+al volver al catálogo. Polling serial, visible y limitado a ocho consultas por
+estado, con espera progresiva de 5 a 30 s y cancelación al salir; después queda
+consulta manual. No hay cobros por efectos o al montar componentes.
+
+«Mis compras» lista los intentos de la sesión invitada actual y permite abrir su
+detalle sin llamar a Wompi, crear intentos ni ejecutar sync. La cookie HttpOnly es
+la credencial de propiedad: recargar, cerrar la pestaña, reiniciar el backend o
+limpiar localStorage no elimina compras, transacciones, importes ni entregas de
+PostgreSQL. Si la cookie se pierde o vence, los datos continúan en la base pero el
+navegador deja de poder acceder a ellos; no hay cuentas ni recuperación por correo.
+
+Componentes en `frontend/src/components`, estado y coordinación en `src/state`,
+HTTP y tokenización en `src/services`, validaciones en `src/validation.ts`.
+El dominio y las capas hexagonales continúan exclusivamente en backend.
+
+```powershell
+# Desde frontend
+npm run format:check
+npm run lint
+npm run typecheck
+npm run build
+npm run test:cov
+```
+
+**Verificación:** Jest/RTL con servicios simulados; las cifras actuales aparecen
+en la sección de cobertura. HTTP desde Node a través del proxy real comprobó
+catálogo (10), sesión (201), creación (201), PATCH (200), resumen (200) y
+configuración (200), sin crear pagos ni ejecutar seed. No equivale a CORS del
+navegador. Antes del cambio de portada se comprobó en Chrome la recuperación al
+inicio y los pasos tarjeta, comprador y entrega a 375×667 y 667×375. La nueva
+portada y el mosaico requieren una captura y revisión visual actualizadas. Siguen
+pendientes CORS/tokenización y pago completo desde esta SPA. CSS incluye Grid/Flexbox,
+fallback de imagen, diálogo, foco restaurado, etiquetas y errores accesibles.
+Las aprobaciones
+y el rechazo UAT de la sección siguiente son ensayos anteriores del backend.
+No hubo cambios en código, dependencias ni esquema del backend en este bloque.
 
 ## Probar catálogo en Swagger
 
@@ -223,9 +306,12 @@ En la verificación Windows/Node 24 se necesitó `$env:NODE_USE_SYSTEM_CA='1'` p
 usar el almacén de certificados del sistema; se conservó la verificación TLS.
 No se usó NODE_TLS_REJECT_UNAUTHORIZED=0. Linux/AWS no están verificados.
 
-La configuración pública contiene environment, publicKey, tokenizationUrl,
-installments=1 y acceptance con tokens/enlaces de ambos contratos. La tarjeta se
-tokeniza directamente desde un cliente separado, mediante JOSE estándar y JWE
+La configuración pública contiene environment, publicKey, tokenizationPublicKey,
+tokenizationUrl, installments=1 y acceptance con tokens/enlaces de ambos contratos.
+El backend obtiene y valida la clave RSA pública de cifrado porque el GET directo
+desde Chrome al UAT devolvió 204 sin cuerpo, aunque OPTIONS y la misma consulta
+servidor a servidor devolvieron 200. La tarjeta se tokeniza directamente desde el
+navegador, mediante JOSE estándar y JWE
 RSA-OAEP-256/A256GCM. El backend recibe solo cardToken, installments y acceptance;
 rechaza PAN/CVC, importes, referencia, estados e IDs remotos del navegador.
 No imprimir/persistir tokens ni guardar tarjeta en scripts, Redux o navegador.
@@ -304,10 +390,16 @@ resolverlo automáticamente. El seed inserta los diez por ID/SKU y nunca actuali
 existentes después de esa transición. Se conservan productos ajenos, reservas e
 históricos. Revertir la migración de categoría no deshace precios/SKU de productos.
 
-Las diez imageUrl de placehold.co fueron comprobadas por HTTP el 2026-11-25:
-200, image/png, 800×600. Son **placeholders con texto**, no fotografías ni
-representaciones físicas de los productos. Las imágenes reales quedan pendientes;
-no se agregó generación ni subida de archivos.
+La API conserva sus diez `imageUrl` de placehold.co. El frontend muestra fotos
+locales de `Pictures/imagenes` mediante un mapa explícito de SKU a archivo en
+`frontend/src/storefront.ts`, sin cambiar el seed ni los datos del servidor.
+`Banner.jpg` se usa como imagen decorativa de la portada; su texto de descuento
+no representa una promoción de la tienda. Inter se aloja localmente bajo
+[SIL Open Font License](frontend/public/fonts/OFL.txt). La composición de
+[Commerce Hero](https://21st.dev/@bankkroll/components/commerce-hero),
+[Shop by Category Grid](https://21st.dev/@ziegfiroyt/components/ecommerce4) y
+[Product List 01](https://21st.dev/@clevision/components/shadcn-studio-product-list-01)
+sirvió de referencia; no se copió su código ni se instaló Next.js.
 
 ## Pruebas y cobertura
 
@@ -324,9 +416,11 @@ npm run test:integration
 npm run test:cov -- --runInBand
 ```
 
-Para arrancar compilado: `npm run build` y `npm run start:prod`. Verificado en
-Windows con PostgreSQL 17 de Docker: **229 unitarias, 45 integración y 30 e2e**, además de 6 pruebas del cliente
-de verificación sin red.
+Para arrancar compilado: `npm run build` y `npm run start:prod`. En la ejecución
+actual de Windows pasaron **233 unitarias, 45 de integración y 30 e2e**, además
+de 6 pruebas del cliente de verificación sin red. Integración y e2e crean, migran,
+inicializan y eliminan exclusivamente una base aleatoria `payment_checkout_test_*`;
+no modifican `DB_NAME` ni la base de desarrollo.
 Las unitarias prueban configuración, dinero y casos de uso; integración comprueba
 restricciones/seed y repositorio de borradores; e2e comprueba HTTP de catálogo y
 sesión/compra. Integración/e2e crean bases aleatorias
@@ -340,29 +434,37 @@ La DB local conserva InitialSchema1795632838292 y AddProductCategory179564337955
 Esta etapa reutiliza sus tablas sin cambiar migraciones, dependencias ni seed.
 
 La prueba exige **más del 80 % en frontend y backend por separado**; meta >=85 %
-en statements, branches, functions y lines. Medición unitaria del 2026-11-25,
-base 2afad396 + bloque de pagos sandbox, con
-`npm test -- --runInBand --coverage --coverageReporters=text`:
+en statements, branches, functions y lines. Medición unitaria del 2026-11-26,
+con `npm run test:cov`:
 
 | Alcance                                             | Statements | Branches | Functions | Lines   |
 | --------------------------------------------------- | ---------- | -------- | --------- | ------- |
-| Backend global, todo src con exclusiones existentes | 44,11 %    | 58,43 %  | 42,95 %   | 44,40 % |
+| Backend global, todo src con exclusiones existentes | 44,94 %    | 58,90 %  | 43,38 %   | 45,29 % |
 | Dominio checkout.ts                                 | 98,46 %    | 98,36 %  | 100 %     | 98,41 % |
 | Nuevos casos de uso checkout-cases.ts               | 100 %      | 100 %    | 100 %     | 100 %   |
 | Money (incluidas suma/multiplicación)               | 100 %      | 100 %    | 100 %     | 100 %   |
 | Reglas transaction.ts                               | 100 %      | 100 %    | 100 %     | 100 %   |
-| Casos transaction-cases.ts                          | 96 %       | 93,54 %  | 83,33 %   | 100 %   |
+| Casos transaction-cases.ts                          | 96,22 %    | 93,54 %  | 87,50 %   | 100 %   |
 | Reglas payments/domain/payment.ts                   | 100 %      | 100 %    | 100 %     | 100 %   |
 | Casos de pagos payment-cases.ts                     | 97,18 %    | 94,28 %  | 100,00 %  | 98,50 % |
-| Adaptador Wompi                                     | 94,94 %    | 92,42 %  | 96,77 %   | 95,60 % |
+| Adaptador Wompi                                     | 93,85 %    | 90,72 %  | 97,14 %   | 94,28 % |
 | Store SQL de pagos (unitaria)                       | 0 %        | 0 %      | 0 %       | 0 %     |
 
-El >80 % global sigue **pendiente**. No se incluyen integración/e2e en esas
+Frontend: **69 pruebas Jest/RTL, 10 suites**, con catálogo, filtros locales, imágenes, detalle, carrito,
+reemplazo, cantidades, formulario, consentimientos, foco, recuperación, doble clic, respuesta perdida, errores y
+polling limitado, historial invitado y apertura de detalle sin cobro/sync. `collectCoverageFrom` incluye todo `src/**/*.{ts,tsx}`; helpers
+de prueba se ubican en `frontend/test/`, sin exclusiones de código de producción.
+Medición separada con `npm run test:cov`:
+
+| Proyecto | Statements | Branches | Functions | Lines   |
+| -------- | ---------- | -------- | --------- | ------- |
+| Frontend | 91,61 %    | 87,43 %  | 88,20 %   | 91,96 % |
+
+El >80 % global del **backend** sigue **pendiente**. No se incluyen integración/e2e en esas
 métricas; tampoco se cambiaron exclusiones. Money y los casos ListProducts y
 GetProduct tienen 100 % en sus cuatro métricas. El adaptador Wompi y las validaciones de entrada tienen unitarias;
 los stores SQL se comprueban por integración/e2e, sin sumar esas suites a la métrica; módulos, DTOs, entidades,
-migraciones y adaptadores siguen incluidos en el denominador. Frontend aún no existe y no
-tiene cobertura; no se le atribuye la del backend.
+migraciones y adaptadores siguen incluidos en el denominador. La cobertura del frontend se mide por separado con Jest, sin atribuirle la del backend.
 Escenarios previstos: dinero/overflow, estados, stock concurrente, doble clic,
 idempotencia, aprobado/rechazado, timeout/sync, eventos repetidos, refresh e IDOR.
 
@@ -403,7 +505,7 @@ NestJS conecta implementaciones.
 Sin versiones/TTL de cotizaciones: crear intento ya compara el resumen
 aceptado con el cálculo actual y lo congela. Stock ya se reserva atómicamente al crear PENDING, sin cobro ni descuento físico. Timeout incierto conserva reserva y bloquea otro envío: webhook y sync
 comparten finalización. Refresh recupera estado desde backend con sesión propia;
-Redux persistido guarda como máximo IDs/paso, nunca tarjeta o tokens.
+Redux no se persiste: solo los IDs de compra e intento, la clave de idempotencia y el paso quedan en localStorage, nunca tarjeta o tokens.
 
 ## AWS y limitaciones
 

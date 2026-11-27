@@ -2,7 +2,7 @@
 
 **Implementados:** catálogo GET /products y /products/:id; POST /checkout-sessions,
 POST /checkouts, GET/PATCH /checkouts/:id y GET /checkouts/:id/summary, bajo /api/v1.
-También POST /transactions y GET /transactions/:id están implementados.
+También POST /transactions, GET /transactions y GET /transactions/:id están implementados.
 GET /payments/config, POST /transactions/:id/pay y /:id/sync también están implementados.
 GET /, /docs y /docs-json se conservan. Webhook sigue **propuesto**. Ver [modelo](data-model.md) y [flujo](checkout-flow.md).
 
@@ -76,8 +76,9 @@ indican abajo. Los códigos de forma/autorización/infraestructura son comunes.
 | GET /checkouts/:id          | GetCheckout / S                                 | UUID                                                     | 200 comprador/destino propios, status, activeTransactionId y latestTransactionId; restaura formulario   | 404                                                                                         |
 | PATCH /checkouts/:id        | UpdateCheckout / W                              | quantity y/o buyer y/o delivery                          | 200 borrador actualizado; objetos buyer/delivery completos si presentes, solo DRAFT                     | 409 CHECKOUT_LOCKED, 422 datos inválidos                                                    |
 | GET /checkouts/:id/summary  | GetSummary / S                                  | UUID                                                     | 200 resumen calculado, o congelado si existe intento activo/pagado; sin escrituras                      | 422 INCOMPLETE_CHECKOUT                                                                     |
-| GET /payments/config        | GetPaymentConfig / S                            | Sin cuerpo                                               | 200 llave pública, ambiente, tokens y links reales de los dos contratos                                 | 503 GATEWAY_UNAVAILABLE                                                                     |
+| GET /payments/config        | GetPaymentConfig / S                            | Sin cuerpo                                               | 200 llaves públicas del comercio y cifrado, ambiente, tokens y links reales de los dos contratos        | 503 GATEWAY_UNAVAILABLE                                                                     |
 | POST /transactions          | CreateTransaction / W                           | checkoutId, acceptedSummary; header Idempotency-Key UUID | 201 ID interno PENDING, reserva y snapshot en un commit; replay devuelve mismo intento                  | 409 SUMMARY_CHANGED/INSUFFICIENT_STOCK/CHECKOUT_LOCKED/IDEMPOTENCY_CONFLICT, 422 incompleto |
+| GET /transactions           | ListTransactions / S                            | Sin query ni cuerpo                                      | 200 intentos propios, más recientes primero; resumen histórico breve; solo lectura y sin llamar a Wompi | 401 sesión ausente o vencida, 503 persistencia                                              |
 | POST /transactions/:id/pay  | StartPayment / W                                | cardToken, installments=1, acceptance                    | 202 pendiente o 200 final; claim durable antes de HTTP; idempotente por ID+hash                         | 409 PAYLOAD_CONFLICT/RESERVATION_EXPIRED, 422 aceptación/cuota                              |
 | GET /transactions/:id       | GetTransaction / S                              | UUID                                                     | 200 estado local y summary histórico; nunca consulta/cobra al proveedor                                 | 404                                                                                         |
 | POST /transactions/:id/sync | SyncPayment / W                                 | UUID, sin cuerpo                                         | 200 final/no enviado, 202 pendiente/incierto; consulta proveedor y finalización compartida, nunca cobro | 409 OBSERVATION_CONFLICT, 503 proveedor                                                     |
@@ -96,6 +97,13 @@ ni cobro; la UI deshabilita el botón. La garantía financiera empieza en el int
 CreateTransaction guarda clave/hash; cambiar entrada con la misma clave es 409.
 Pay compara hash antes de revalidar el estado temporal: replay recupera el estado,
 no reenvía. Con respuesta perdida, GET/sync. GET siempre es lectura local.
+
+GET /transactions devuelve `{ "data": { "items": [...] } }` y filtra por la
+sesión propietaria en SQL; un UUID por sí solo no concede acceso. Cada elemento
+incluye id de intento y checkout, nombre histórico del producto, cantidad, total
+COP, referencia, fecha, estado/dispatchStatus e id de entrega nullable. El detalle
+se abre con los GET de checkout e intento existentes. Listar o abrir no crea ni
+sincroniza pagos; los pendientes o inciertos usan el sync explícito ya documentado.
 
 PATCH vacío, propiedades desconocidas (también anidadas) y null en campos
 obligatorios devuelven 400 INVALID_REQUEST; se normalizan espacios exteriores.
@@ -258,6 +266,7 @@ hashes. Recursos ajenos/inexistentes: mismo 404; resultado negativo definitivo: 
 | Llamada externa               | Responsable                        | Propósito                                                                   |
 | ----------------------------- | ---------------------------------- | --------------------------------------------------------------------------- |
 | GET /merchants/info           | Backend                            | Obtener contratos/tokens; GET y header público verificados en UAT           |
+| GET /tokens/keys/tokenization | Backend                            | Obtener y validar la clave RSA pública que se entrega en payments/config    |
 | POST /tokens/cards            | Frontend directo con llave pública | Tokenizar tarjeta; no pasa por nuestro backend                              |
 | POST /transactions            | Backend                            | CARD, referencia única, monto histórico, firma de integridad y aceptaciones |
 | GET /transactions/:providerId | Backend                            | Confirmar resultado autenticado y comparar referencia/monto/moneda/ambiente |
@@ -271,8 +280,10 @@ Ausencia/null/esquema inválido/transporte/HTTP se traducen sin cuerpos externos
 GET transaction del proveedor se autentica con llave privada desde el backend.
 
 GET payments/config devuelve data obligatorio: environment=UAT_SANDBOX, publicKey,
-tokenizationUrl, installments=1 y acceptance (acceptanceToken, personalAuthToken,
-policyUrl, personalDataUrl). No incluye secretos. Sesión vigente y no-store;
+tokenizationPublicKey, tokenizationUrl, installments=1 y acceptance
+(acceptanceToken, personalAuthToken, policyUrl, personalDataUrl). El backend obtiene
+y valida la clave RSA pública de cifrado; PAN/CVC no pasan por nuestra API. No
+incluye secretos. Sesión vigente y no-store;
 configuración o proveedor no disponible: 503 GATEWAY_UNAVAILABLE.
 
 Pay exige tokens opacos sin alterar contenido: cardToken 1..1024; cada aceptación

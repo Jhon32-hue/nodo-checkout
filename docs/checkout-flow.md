@@ -1,17 +1,17 @@
 # Recorrido y reglas de checkout
 
-**Backend de catálogo, sesión, borrador/resumen y creación/consulta de intentos con reserva implementados; configuración/pay/sync/finalización sandbox implementados; frontend y webhook pendientes.**
+**Backend de catálogo, sesión, borrador/resumen y creación/consulta de intentos con reserva implementados; configuración/pay/sync/finalización sandbox implementados; frontend con inicio, detalle, carrito y checkout implementado, recorrido de pago en navegador pendiente; webhook pendiente.**
 Ver [modelo](data-model.md), [contrato HTTP](api-contract.md) y [estado actual](../README.md).
 
 ## Cinco pantallas
 
-| Pantalla             | Comportamiento y caso de uso                                                                                                                                                             |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. Producto          | ListProducts/GetProduct muestran precio y disponibilidad del seed. Crear sesión y CreateCheckout al continuar; no reservar aún.                                                          |
-| 2. Tarjeta y entrega | UpdateCheckout guarda comprador/destino. Modal de tarjeta, validación cliente y tokenización directa hacia Wompi; tarjeta solo en memoria.                                               |
-| 3. Resumen           | GetSummary calcula producto × cantidad + tarifa base + entrega. CreateTransaction congela el resumen aceptado y reserva; devuelve ID PENDING antes de StartPayment. Resumen en backdrop. |
-| 4. Resultado         | GetTransaction/SyncPayment muestran pendiente, aprobado o rechazado. Nunca interpretar una redirección del navegador como aprobación.                                                    |
-| 5. Producto          | Consultar de nuevo disponibilidad y permitir otra compra. Una compra pagada no se reutiliza para cobrar.                                                                                 |
+| Pantalla             | Comportamiento y caso de uso                                                                                                                                                                                                                                                                       |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Producto          | ListProducts/GetProduct muestran precio y disponibilidad del seed. Crear sesión y CreateCheckout al continuar; no reservar aún.                                                                                                                                                                    |
+| 2. Tarjeta y entrega | UpdateCheckout guarda comprador/destino. Modal de tarjeta y validación cliente; tarjeta solo en memoria.                                                                                                                                                                                           |
+| 3. Resumen           | GetSummary calcula producto × cantidad + tarifa base + entrega sin tokenizar. Tras confirmar, el navegador cifra con la clave pública entregada por la configuración y tokeniza directamente con Wompi; CreateTransaction congela el resumen y reserva antes de StartPayment. Resumen en backdrop. |
+| 4. Resultado         | GetTransaction/SyncPayment muestran pendiente, aprobado o rechazado. Nunca interpretar una redirección del navegador como aprobación.                                                                                                                                                              |
+| 5. Producto          | Consultar de nuevo disponibilidad y permitir otra compra. Una compra pagada no se reutiliza para cobrar.                                                                                                                                                                                           |
 
 Tarifas ficticias implementadas en el resumen: base 50000 y entrega 100000 centavos por compra,
 COP y una cuota. Ejemplo: 2 × 12990000 + 50000 + 100000 = 26130000. Confirmar estos
@@ -166,13 +166,22 @@ Cookie guest HttpOnly, SameSite=Lax, Secure en HTTPS, digest en DB y vigencia de
 aleatorio de 256 bits, SHA-256 en DB y CSRF HMAC-SHA256 con CSRF_SECRET estable. Autorización por sesión propietaria en cada
 compra/intento. Origin permitido + token CSRF vinculado a la sesión para
 escrituras; emitir/recuperar CSRF al iniciar sesión. Mismo origen en AWS; en Vite
-local configurar CORS con origen exacto y credentials cuando exista frontend.
+local usar el proxy Vite /api, conservando Origin y cookie del mismo origen.
 
-Redux persiste como máximo checkoutId/transactionId/paso. Tras refresh,
+localStorage conserva solo checkoutId/transactionId/paso y clave de idempotencia;
+Redux no se persiste. Tras refresh,
 recuperar sesión/CSRF y consultar backend; no persistir comprador, dirección,
 tokens o tarjeta en localStorage. Si cookie vence, no recuperar PII por UUID;
 resolver pagos pendientes mediante proveedor/revisión aunque el cliente ya no
 pueda acceder. No hay cuentas ni recuperación por email en este alcance.
+
+«Mis compras» consulta los intentos de la sesión invitada actual, ordenados del
+más reciente al más antiguo, y permite abrir el detalle con las lecturas existentes.
+La consulta no llama al proveedor ni ejecuta pay/sync. Checkout, intento, importes
+históricos, reserva y entrega permanecen en PostgreSQL al recargar, cerrar la
+pestaña, reiniciar el backend o limpiar localStorage. Perder o vencer la cookie no
+elimina esos registros: elimina el acceso del navegador, porque no hay cuentas ni
+recuperación por correo en este assessment.
 
 ## Qué se simplificó y qué lo reemplaza
 
@@ -203,7 +212,7 @@ Unitarias Jest: importes/overflow, tarifas, validaciones, estados y errores ROP.
 Integración con PostgreSQL aislado: migraciones/seed, última unidad concurrente,
 doble claim, rollback, clave repetida/diferente y aprobación aplicada una vez.
 E2e API: sesión/CSRF, recurso ajeno 404, compra aprobada/rechazada, timeout y sync,
-eventos duplicados. Frontend Jest/RTL: formulario, cinco pasos, doble clic,
+eventos duplicados. Frontend Jest/RTL: detalle, carrito de un producto, formulario, cinco pasos, doble clic,
 restore tras refresh y no persistir tarjeta. UAT smoke separado de tests
 simulados, exclusivamente sandbox.
 
@@ -222,4 +231,4 @@ concurrentes bajo lock. E2e con DB aislada cubre autorización, validación, res
 rollback, histórico y recuperación al recrear NestJS. Las pruebas de reserva/última unidad, idempotencia, rollback y expiración propia
 ya existen en PostgreSQL aislado. Cobros y finalización tienen unitarias, SQL/e2e simulados y un aprobado UAT;
 el primer rechazo quedó incierto y un ensayo independiente posterior confirmó DECLINED,
-reserva liberada, stock intacto, ninguna entrega y checkout DRAFT. Frontend/webhook siguen pendientes. El código nuevo no cambia esas tablas.
+reserva liberada, stock intacto, ninguna entrega y checkout DRAFT. Frontend implementado con Jest/RTL simulado; inicio, detalle, carrito y modal se inspeccionaron en Chrome de escritorio y emulación iPhone SE 375×667, y el carrito en horizontal 667×375. CORS/tokenización, resumen/resultado y el recorrido completo en navegador siguen pendientes. Webhook pendiente. El código nuevo no cambia esas tablas.
