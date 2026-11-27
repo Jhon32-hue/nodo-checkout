@@ -8,12 +8,11 @@ El recorrido está implementado; la publicación en AWS sigue pendiente.
 
 ## Enlaces para evaluar
 
-- Aplicación local: <http://localhost:5173>.
-- Swagger local: <http://localhost:3000/docs>; JSON: <http://localhost:3000/docs-json>.
+- GitHub público: pendiente de publicación.
+- Aplicación pública conectada a la API: pendiente de despliegue.
+- Swagger público o colección Postman: pendiente de entrega.
 - [OpenAPI versionado](docs/openapi.json) y [contrato HTTP](docs/api-contract.md).
 - [Ejecución local](#ejecución-local) y [pruebas/cobertura](#pruebas-y-cobertura).
-- Repositorio público: publicación en GitHub pendiente.
-- Aplicación y Swagger públicos: pendientes de AWS; son entregables que faltan.
 
 ## Probar una compra Sandbox
 
@@ -160,6 +159,7 @@ npm run dev
 
 Abre `http://localhost:5173`. Vite usa 5173 y envía `/api` al backend en 3000;
 incluye ese origen exacto en `FRONTEND_ORIGINS`. PostgreSQL local usa 5433.
+Swagger local: <http://localhost:3000/docs>; OpenAPI local: <http://localhost:3000/docs-json>.
 Si Windows necesita su almacén de certificados, configura `NODE_USE_SYSTEM_CA`
 en el proceso del backend; conserva TLS validado. Linux como runtime de API y AWS
 siguen pendientes de verificación; PostgreSQL sí se ejecuta en Docker Linux.
