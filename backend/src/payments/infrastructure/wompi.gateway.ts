@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { createHash } from 'node:crypto';
+import { createHash, createPublicKey } from 'node:crypto';
 import { err, ok, errAsync, Result, ResultAsync } from 'neverthrow';
 import type {
   PaymentGateway,
@@ -62,6 +62,37 @@ function https(v: unknown): v is string {
   } catch {
     return false;
   }
+}
+function tokenizationKey(body: unknown): Result<string, GatewayError> {
+  return data(body).andThen((value) => {
+    if (
+      typeof value.publicKey !== 'string' ||
+      value.publicKey.trim().length === 0 ||
+      value.publicKey.length > 8192
+    )
+      return err(unavailable('schema'));
+    const compact = value.publicKey
+      .trim()
+      .replace('-----BEGIN PUBLIC KEY-----', '')
+      .replace('-----END PUBLIC KEY-----', '')
+      .replace(/\s/g, '');
+    if (!/^[A-Za-z0-9+/=]+$/.test(compact)) return err(unavailable('schema'));
+    const pem =
+      '-----BEGIN PUBLIC KEY-----\n' +
+      (compact.match(/.{1,64}/g)?.join('\n') ?? '') +
+      '\n-----END PUBLIC KEY-----';
+    try {
+      const key = createPublicKey(pem);
+      if (
+        key.asymmetricKeyType !== 'rsa' ||
+        (key.asymmetricKeyDetails?.modulusLength ?? 0) < 2048
+      )
+        return err(unavailable('schema'));
+      return ok(pem);
+    } catch {
+      return err(unavailable('schema'));
+    }
+  });
 }
 export function decodeObservation(
   body: unknown,
@@ -197,7 +228,7 @@ export class WompiPaymentGateway implements PaymentGateway {
     decode: (body: unknown) => Result<T, GatewayError>,
     method: 'GET' | 'POST',
     body?: unknown,
-    publicHeader = false,
+    authentication: 'private' | 'merchant' | 'public' = 'private',
     context: { localId?: string; reference?: string; remoteId?: string } = {},
   ): ResultAsync<T, GatewayError> {
     const call = async (): Promise<Result<T, GatewayError>> => {
@@ -208,12 +239,18 @@ export class WompiPaymentGateway implements PaymentGateway {
           method,
           redirect: 'error',
           signal: AbortSignal.timeout(this.timeoutMs),
-          headers: publicHeader
-            ? { 'x-merchant-public-key': this.env.publicKey ?? '' }
-            : {
-                Authorization: 'Bearer ' + (this.env.privateKey ?? ''),
-                'Content-Type': 'application/json',
-              },
+          headers:
+            authentication === 'merchant'
+              ? { 'x-merchant-public-key': this.env.publicKey ?? '' }
+              : authentication === 'public'
+                ? {
+                    Authorization: 'Bearer ' + (this.env.publicKey ?? ''),
+                    'Content-Type': 'application/json',
+                  }
+                : {
+                    Authorization: 'Bearer ' + (this.env.privateKey ?? ''),
+                    'Content-Type': 'application/json',
+                  },
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         });
       } catch {
@@ -279,7 +316,10 @@ export class WompiPaymentGateway implements PaymentGateway {
                   current.key === auth.key
                 )
                   return err(unavailable('schema', 'configuration'));
-                return ok<PublicPaymentConfig, GatewayError>({
+                return ok<
+                  Omit<PublicPaymentConfig, 'tokenizationPublicKey'>,
+                  GatewayError
+                >({
                   environment: 'UAT_SANDBOX',
                   publicKey: this.env.publicKey ?? '',
                   tokenizationUrl: UAT_ORIGIN + '/v1/tokens/cards',
@@ -296,7 +336,19 @@ export class WompiPaymentGateway implements PaymentGateway {
         ),
       'GET',
       undefined,
-      true,
+      'merchant',
+    ).andThen((config) =>
+      this.request(
+        'configuration',
+        '/v1/tokens/keys/tokenization',
+        tokenizationKey,
+        'GET',
+        undefined,
+        'public',
+      ).map((tokenizationPublicKey) => ({
+        ...config,
+        tokenizationPublicKey,
+      })),
     );
   }
   validateAcceptance(input: PayInput) {
@@ -335,7 +387,7 @@ export class WompiPaymentGateway implements PaymentGateway {
         acceptance_token: p.acceptance.acceptanceToken,
         accept_personal_auth: p.acceptance.personalAuthToken,
       },
-      false,
+      'private',
       { localId: r.view.id, reference: r.reference },
     );
   }
@@ -350,7 +402,7 @@ export class WompiPaymentGateway implements PaymentGateway {
       decodeObservation,
       'GET',
       undefined,
-      false,
+      'private',
       { ...context, remoteId: id },
     );
   }

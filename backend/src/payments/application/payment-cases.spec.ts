@@ -34,6 +34,7 @@ const input = (): PayInput => ({
 const config: PublicPaymentConfig = {
   environment: 'UAT_SANDBOX',
   publicKey: 'pub_test_fixture',
+  tokenizationPublicKey: 'fixture-rsa-public-key',
   tokenizationUrl: 'https://example.test/tokenize',
   installments: 1,
   acceptance: {

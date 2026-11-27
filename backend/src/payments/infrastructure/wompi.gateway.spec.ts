@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import {
   decodeObservation,
   integritySignature,
@@ -13,6 +13,9 @@ const env = {
   privateKey: 'prv_test_fixture',
   integritySecret: 'unit-secret',
 };
+const tokenizationPublicKey = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+}).publicKey.export({ type: 'spki', format: 'pem' });
 const body = {
   data: {
     id: '123-456-789',
@@ -91,9 +94,17 @@ const record: PaymentRecord = {
 };
 function mock(value: unknown, status = 200) {
   return jest.fn((request: string | URL | Request, init?: RequestInit) => {
-    void request;
     void init;
-    return Promise.resolve(new Response(JSON.stringify(value), { status }));
+    const url =
+      typeof request === 'string'
+        ? request
+        : request instanceof URL
+          ? request.href
+          : request.url;
+    const response = url.endsWith('/v1/tokens/keys/tokenization')
+      ? { data: { publicKey: tokenizationPublicKey } }
+      : value;
+    return Promise.resolve(new Response(JSON.stringify(response), { status }));
   });
 }
 describe('Wompi runtime decoding and sanitized transport', () => {
@@ -141,6 +152,7 @@ describe('Wompi runtime decoding and sanitized transport', () => {
     expect(r.isOk() && r.value).toEqual({
       environment: 'UAT_SANDBOX',
       publicKey: env.publicKey,
+      tokenizationPublicKey: tokenizationPublicKey.toString().trim(),
       tokenizationUrl: UAT_ORIGIN + '/v1/tokens/cards',
       installments: 1,
       acceptance: {
@@ -154,6 +166,16 @@ describe('Wompi runtime decoding and sanitized transport', () => {
     expect(http.mock.calls[0][1]).toMatchObject({
       redirect: 'error',
       headers: { 'x-merchant-public-key': env.publicKey },
+    });
+    expect(http.mock.calls[1][0]).toBe(
+      UAT_ORIGIN + '/v1/tokens/keys/tokenization',
+    );
+    expect(http.mock.calls[1][1]).toMatchObject({
+      redirect: 'error',
+      headers: {
+        Authorization: 'Bearer ' + env.publicKey,
+        'Content-Type': 'application/json',
+      },
     });
     expect(http.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
   });
@@ -171,6 +193,35 @@ describe('Wompi runtime decoding and sanitized transport', () => {
       (await new WompiPaymentGateway(env, mock(value)).configuration()).isErr(),
     ).toBe(true);
   });
+  it.each([undefined, null, '', 'not-a-key'])(
+    'rejects invalid tokenization public key %p',
+    async (publicKey) => {
+      const http = jest.fn((request: string | URL | Request) =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify(
+              (typeof request === 'string'
+                ? request
+                : request instanceof URL
+                  ? request.href
+                  : request.url
+              ).endsWith('/v1/tokens/keys/tokenization')
+                ? { data: { publicKey } }
+                : config(),
+            ),
+            { status: 200 },
+          ),
+        ),
+      );
+      const result = await new WompiPaymentGateway(env, http).configuration();
+      expect(result.isErr() && result.error).toEqual({
+        kind: 'GATEWAY_UNAVAILABLE',
+        operation: 'configuration',
+        reason: 'schema',
+        httpStatus: 200,
+      });
+    },
+  );
   it('accepts matching current contracts and rejects modified/expired tokens without rewriting tokens', async () => {
     const gateway = new WompiPaymentGateway(env, mock(config()));
     expect((await gateway.validateAcceptance(input())).isOk()).toBe(true);

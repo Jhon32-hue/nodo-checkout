@@ -78,6 +78,11 @@ class PublicAcceptanceDto {
 class PublicConfigDto {
   @ApiProperty({ enum: ['UAT_SANDBOX'] }) environment!: string;
   @ApiProperty() publicKey!: string;
+  @ApiProperty({
+    description:
+      'RSA public key used only to encrypt card data in the browser.',
+  })
+  tokenizationPublicKey!: string;
   @ApiProperty({ format: 'uri' }) tokenizationUrl!: string;
   @ApiProperty({ type: 'integer', enum: [1] }) installments!: number;
   @ApiProperty({ type: PublicAcceptanceDto }) acceptance!: PublicAcceptanceDto;
@@ -148,7 +153,7 @@ export class PaymentsController {
     status: 200,
     type: ConfigResponseDto,
     description:
-      'data: environment=UAT_SANDBOX, publicKey, tokenizationUrl, installments=1, acceptance with acceptanceToken, personalAuthToken, policyUrl and personalDataUrl. No private credentials.',
+      'data: environment=UAT_SANDBOX, publicKey, tokenizationPublicKey, tokenizationUrl, installments=1, acceptance with acceptanceToken, personalAuthToken, policyUrl and personalDataUrl. No private credentials.',
   })
   async configuration() {
     return result(await this.config.execute());

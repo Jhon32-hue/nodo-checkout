@@ -14,6 +14,7 @@ export interface PayInput {
 export interface PublicPaymentConfig {
   environment: 'UAT_SANDBOX';
   publicKey: string;
+  tokenizationPublicKey: string;
   tokenizationUrl: string;
   installments: 1;
   acceptance: {
