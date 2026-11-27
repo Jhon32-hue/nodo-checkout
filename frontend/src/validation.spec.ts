@@ -10,6 +10,8 @@ import {
   money,
   formatCardNumber,
   normalizeCardNumber,
+  cardNumberError,
+  cardNumberMax,
 } from './validation';
 import { ApiError } from './services/api';
 import { card, buyer, delivery } from '../test/fixtures';
@@ -34,6 +36,20 @@ describe('Validaciones del formulario', () => {
     );
     expect(formatCardNumber('4242424242424242')).toBe('4242 4242 4242 4242');
     expect(normalizeCardNumber('1'.repeat(25))).toHaveLength(19);
+    expect(normalizeCardNumber('5555555555554444999')).toHaveLength(16);
+    expect(cardNumberMax('5555')).toBe(16);
+    expect(cardNumberMax('4242')).toBe(19);
+  });
+  it('explica vacío, marca, longitud y Luhn sin exponer detalles técnicos', () => {
+    expect(cardNumberError('')).toBe('Ingresa el número de la tarjeta.');
+    expect(cardNumberError('1234')).toBe(
+      'Solo aceptamos tarjetas Visa o Mastercard.',
+    );
+    expect(cardNumberError('4242')).toContain('Faltan 9 dígitos');
+    expect(cardNumberError('555555555555444')).toContain('Falta 1 dígito');
+    expect(cardNumberError('4242424242424241')).toBe(
+      'El número no es válido. Revisa que los dígitos estén correctos.',
+    );
   });
   it('detecta marcas y formatea centavos en COP', () => {
     expect(brand(card.number)).toBe('Visa');
@@ -112,6 +128,16 @@ describe('Validaciones del formulario', () => {
     expect(quantityValid(99, 100)).toBe(true);
     expect(message(new Error('secret-message'))).not.toContain('secret');
     expect(message(new ApiError('SUMMARY_CHANGED'))).toContain('importes');
+    expect(message(new ApiError('TOKENIZATION'))).toContain(
+      'validar la tarjeta',
+    );
+    expect(message(new ApiError('GATEWAY_UNAVAILABLE'))).toContain(
+      'servicio de pagos',
+    );
+    expect(message(new ApiError('PAYMENT_RESULT_UNKNOWN'))).toContain(
+      'No repetiremos el cobro',
+    );
+    expect(message(new ApiError('NETWORK'))).toContain('conexión');
     for (const c of [
       'INSUFFICIENT_STOCK',
       'TOKENIZATION',

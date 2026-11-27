@@ -4,7 +4,7 @@ import { Provider } from 'react-redux';
 import { makeStore } from '../state/store';
 import { CardNumberField } from './CardNumberField';
 
-function Subject() {
+function Subject({ onValidate = jest.fn() }: { onValidate?: () => void }) {
   const [value, setValue] = useState('');
   return (
     <CardNumberField
@@ -13,6 +13,7 @@ function Subject() {
       onBlur={jest.fn()}
       inputRef={jest.fn()}
       error={false}
+      onValidate={onValidate}
     />
   );
 }
@@ -37,6 +38,37 @@ it('formatea escritura, bloquea letras y conserva solo dígitos', () => {
   });
   expect(input).toHaveValue('4242 4242 4242 4242');
   expect(input).toHaveAttribute('inputmode', 'numeric');
+});
+
+it.each([
+  ['42424242424242424242', 19],
+  ['55555555555544449', 16],
+])('bloquea %s en su máximo %i e informa el recorte', (pasted, max) => {
+  const { input } = setup();
+  fireEvent.paste(input, {
+    clipboardData: { getData: () => pasted },
+  });
+  expect(input.value.replace(/\s/g, '')).toHaveLength(max);
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    `El número admite máximo ${max} dígitos.`,
+  );
+});
+
+it('solicita validación al perder foco y al completar una longitud admitida', () => {
+  const onValidate = jest.fn();
+  const store = makeStore();
+  render(
+    <Provider store={store}>
+      <Subject onValidate={onValidate} />
+    </Provider>,
+  );
+  const input = screen.getByLabelText('Número de tarjeta');
+  fireEvent.change(input, {
+    target: { value: '4242424242424242', selectionStart: 16 },
+  });
+  expect(onValidate).toHaveBeenCalled();
+  fireEvent.blur(input);
+  expect(onValidate).toHaveBeenCalledTimes(2);
 });
 
 it('acepta pegado, recorta al límite y deja el cursor después del contenido', () => {

@@ -9,7 +9,6 @@ import CreditCardIcon from '@mui/icons-material/CreditCard';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
-import PersonIcon from '@mui/icons-material/Person';
 import ButtonBase from '@mui/material/ButtonBase';
 import { formSchema, type FormValues } from '../validation';
 import { CardNumberField } from './CardNumberField';
@@ -28,11 +27,10 @@ type Phase = 'card' | 'buyer' | 'delivery';
 const phases: Array<{
   id: Phase;
   label: string;
-  icon: typeof CreditCardIcon;
 }> = [
-  { id: 'card', label: 'Tarjeta', icon: CreditCardIcon },
-  { id: 'buyer', label: 'Comprador', icon: PersonIcon },
-  { id: 'delivery', label: 'Entrega', icon: LocalShippingIcon },
+  { id: 'card', label: 'Tarjeta' },
+  { id: 'buyer', label: 'Comprador' },
+  { id: 'delivery', label: 'Entrega' },
 ];
 export type DetailsDraft = {
   buyer?: Buyer;
@@ -79,6 +77,8 @@ export function DetailsForm({
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
+    mode: 'onBlur',
+    reValidateMode: 'onChange',
     shouldUnregister: false,
     defaultValues: {
       buyer: draft?.buyer ?? { fullName: '', email: '', phone: '' },
@@ -213,7 +213,7 @@ export function DetailsForm({
       }}
     >
       <nav className={styles.formProgress} aria-label="Pasos del formulario">
-        {phases.map(({ id, label, icon: Icon }, index) => (
+        {phases.map(({ id, label }, index) => (
           <ButtonBase
             key={id}
             type="button"
@@ -231,7 +231,6 @@ export function DetailsForm({
             onClick={() => setPhase(id)}
           >
             <span>{index + 1}</span>
-            <Icon aria-hidden="true" fontSize="small" />
             <strong>{label}</strong>
           </ButtonBase>
         ))}
@@ -273,6 +272,7 @@ export function DetailsForm({
                   inputRef={cardNumber.ref}
                   error={fieldState.invalid}
                   helperText={fieldState.error?.message}
+                  onValidate={() => void trigger('card.number')}
                 />
               )}
             />

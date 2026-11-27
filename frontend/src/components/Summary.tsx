@@ -1,5 +1,5 @@
 import type { Summary as SummaryData, Product } from '../types';
-import { money } from '../validation';
+import { brand, money, normalizeCardNumber } from '../validation';
 import { productImage } from '../storefront';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -13,6 +13,7 @@ export function Summary({
   onEdit,
   readOnly = false,
   canConfirm = true,
+  cardNumber,
 }: {
   summary: SummaryData;
   product?: Product;
@@ -21,7 +22,10 @@ export function Summary({
   onEdit: () => void;
   readOnly?: boolean;
   canConfirm?: boolean;
+  cardNumber?: string;
 }) {
+  const digits = normalizeCardNumber(cardNumber ?? '');
+  const cardBrand = brand(digits);
   return (
     <>
       <section
@@ -56,6 +60,26 @@ export function Summary({
             {s.quantity} {s.quantity === 1 ? 'unidad' : 'unidades'} ×{' '}
             {money(s.unitPriceCents)} por unidad
           </p>
+        </div>
+      </div>
+      <div className={styles.paymentMethod} aria-label="Método de pago">
+        <div>
+          <span>Método de pago</span>
+          <strong>Tarjeta</strong>
+        </div>
+        <div>
+          <span>Marca</span>
+          <strong>
+            {cardBrand === 'Tarjeta' ? 'Por confirmar' : cardBrand}
+          </strong>
+        </div>
+        <div>
+          <span>Número</span>
+          <strong>
+            {digits.length >= 4
+              ? `•••• ${digits.slice(-4)}`
+              : 'Vuelve a introducir la tarjeta'}
+          </strong>
         </div>
       </div>
       <dl className={styles.totals}>

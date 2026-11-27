@@ -52,6 +52,43 @@ it('muestra resumen histórico sin acción de pago', () => {
   ).not.toBeInTheDocument();
   expect(confirm).not.toHaveBeenCalled();
 });
+it.each([
+  ['Visa', '4242424242425175', '•••• 5175'],
+  ['Mastercard', '5555555555554444', '•••• 4444'],
+])('muestra %s enmascarada usando solo memoria', (name, number, masked) => {
+  render(
+    <Summary
+      summary={summary}
+      product={product}
+      busy={false}
+      onConfirm={jest.fn()}
+      onEdit={jest.fn()}
+      cardNumber={number}
+    />,
+  );
+  expect(screen.getByText(name)).toBeInTheDocument();
+  expect(screen.getByText(masked)).toBeInTheDocument();
+  expect(screen.queryByText(number)).not.toBeInTheDocument();
+});
+
+it('exige reintroducir la tarjeta si la memoria se perdió al recargar', () => {
+  render(
+    <Summary
+      summary={summary}
+      product={product}
+      busy={false}
+      onConfirm={jest.fn()}
+      onEdit={jest.fn()}
+      canConfirm={false}
+    />,
+  );
+  expect(
+    screen.getByText('Vuelve a introducir la tarjeta'),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole('button', { name: 'Introducir tarjeta para pagar' }),
+  ).toBeInTheDocument();
+});
 it('muestra catálogo y abre detalle desde imagen y nombre con fallback de imagen', () => {
   const open = jest.fn();
   const add = jest.fn();
@@ -349,6 +386,9 @@ it('contratos independientes sin preselección, errores junto a campos y tarjeta
   await waitFor(() =>
     expect(screen.getAllByRole('alert').length).toBeGreaterThan(0),
   );
+  expect(
+    screen.getByText('Ingresa el número de la tarjeta.'),
+  ).toBeInTheDocument();
   expect(f.details).not.toHaveBeenCalled();
   const cardFields: Record<string, string> = {
     'Número de tarjeta': card.number,
@@ -404,6 +444,18 @@ it('contratos independientes sin preselección, errores junto a campos y tarjeta
   fireEvent.click(screen.getByRole('button', { name: 'Ver resumen' }));
   await waitFor(() => expect(f.details).toHaveBeenCalledTimes(1));
   unmount();
+});
+it('no muestra error de tarjeta mientras se empieza a escribir y valida al salir', async () => {
+  const f = flow();
+  render(<DetailsForm checkout={checkout} flow={f} busy={false} />);
+  const number = screen.getByLabelText('Número de tarjeta');
+  fireEvent.change(number, { target: { value: '4', selectionStart: 1 } });
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  fireEvent.blur(number);
+  expect(
+    await screen.findByText('Faltan 12 dígitos para completar el número.'),
+  ).toBeInTheDocument();
+  expect(f.details).not.toHaveBeenCalled();
 });
 it('error de configuración no habilita tokenización', async () => {
   const f = flow();

@@ -5,8 +5,19 @@ export const money = (cents: number) =>
     currency: 'COP',
     maximumFractionDigits: 0,
   }).format(cents / 100);
-export const normalizeCardNumber = (value: string) =>
-  value.replace(/\D/g, '').slice(0, 19);
+const digitsOnly = (value: string) => value.replace(/\D/g, '');
+const mastercardPrefix = (value: string) => {
+  if (/^5[1-5]/.test(value)) return true;
+  if (value.length < 4) return false;
+  const prefix = Number(value.slice(0, 4));
+  return prefix >= 2221 && prefix <= 2720;
+};
+export const cardNumberMax = (value: string) =>
+  mastercardPrefix(digitsOnly(value)) ? 16 : 19;
+export const normalizeCardNumber = (value: string) => {
+  const digits = digitsOnly(value);
+  return digits.slice(0, cardNumberMax(digits));
+};
 export const formatCardNumber = (value: string) =>
   normalizeCardNumber(value).replace(/(\d{4})(?=\d)/g, '$1 ');
 export function luhn(value: string) {
@@ -36,6 +47,31 @@ export function brand(value: string) {
     if (prefix >= 2221 && prefix <= 2720) return 'Mastercard';
   }
   return 'Tarjeta';
+}
+export const supportedCardLengths = (value: string) =>
+  brand(value) === 'Visa'
+    ? [13, 16, 19]
+    : brand(value) === 'Mastercard'
+      ? [16]
+      : [];
+
+export function cardNumberError(value: string) {
+  const digits = digitsOnly(value);
+  if (!digits) return 'Ingresa el número de la tarjeta.';
+  const cardBrand = brand(digits);
+  if (cardBrand === 'Tarjeta')
+    return 'Solo aceptamos tarjetas Visa o Mastercard.';
+  const lengths = supportedCardLengths(digits);
+  const next = lengths.find((length) => length >= digits.length);
+  if (!next)
+    return `El número de ${cardBrand} admite máximo ${lengths.at(-1)} dígitos.`;
+  if (digits.length < next) {
+    const missing = next - digits.length;
+    return `${missing === 1 ? 'Falta' : 'Faltan'} ${missing} ${missing === 1 ? 'dígito' : 'dígitos'} para completar el número.`;
+  }
+  if (!luhn(digits))
+    return 'El número no es válido. Revisa que los dígitos estén correctos.';
+  return null;
 }
 const phone = z
   .string()
@@ -67,11 +103,16 @@ export const deliverySchema = z.object({
 });
 export const cardSchema = z
   .object({
-    number: z.string().refine(luhn, 'Revisa el número de tarjeta'),
+    number: z.string().superRefine((value, context) => {
+      const error = cardNumberError(value);
+      if (error) context.addIssue({ code: 'custom', message: error });
+    }),
     holder: name,
-    month: z.string().regex(/^(0?[1-9]|1[0-2])$/, 'Mes entre 01 y 12'),
+    month: z
+      .string()
+      .regex(/^(0?[1-9]|1[0-2])$/, 'Ingresa un mes entre 01 y 12.'),
     year: z.string().regex(/^\d{4}$/, 'Año de 4 dígitos'),
-    cvc: z.string().regex(/^\d{3,4}$/, 'CVC de 3 o 4 dígitos'),
+    cvc: z.string().regex(/^\d{3,4}$/, 'Ingresa 3 o 4 dígitos para el CVC.'),
   })
   .refine(
     (c) => {
@@ -82,7 +123,7 @@ export const cardSchema = z
           Number(c.month) >= now.getMonth() + 1)
       );
     },
-    { message: 'La tarjeta está vencida', path: ['year'] },
+    { message: 'La tarjeta está vencida.', path: ['year'] },
   );
 export const formSchema = z.object({
   buyer: buyerSchema,
@@ -102,8 +143,16 @@ export function message(error: unknown) {
         SUMMARY_CHANGED:
           'Los importes cambiaron. Revisa el nuevo resumen y confirma otra vez.',
         INSUFFICIENT_STOCK: 'La disponibilidad cambió. Vuelve al catálogo.',
-        TOKENIZATION:
-          'No pudimos preparar el pago con tarjeta. Inténtalo de nuevo más tarde.',
+        TOKENIZATION: 'No pudimos validar la tarjeta. Revisa sus datos.',
+        GATEWAY_UNAVAILABLE:
+          'El servicio de pagos no está disponible en este momento.',
+        PAYMENT_RESULT_UNKNOWN:
+          'No recibimos una confirmación. No repetiremos el cobro; consulta el estado.',
+        NETWORK: 'No pudimos comunicarnos con la tienda. Revisa tu conexión.',
+        INVALID_RESPONSE:
+          'No pudimos comunicarnos con la tienda. Revisa tu conexión.',
+        UNAVAILABLE:
+          'No pudimos comunicarnos con la tienda. Revisa tu conexión.',
         RESOURCE_NOT_FOUND: 'Esta compra no está disponible en tu sesión.',
         UNAUTHORIZED:
           'La sesión venció. No vuelvas a enviar un pago pendiente.',

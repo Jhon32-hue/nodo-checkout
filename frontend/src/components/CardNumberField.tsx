@@ -1,7 +1,18 @@
-import { useLayoutEffect, useRef, type ClipboardEvent, type Ref } from 'react';
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type Ref,
+} from 'react';
 import TextField from '@mui/material/TextField';
 import { CardBrands } from './CardBrands';
-import { formatCardNumber, normalizeCardNumber } from '../validation';
+import {
+  cardNumberMax,
+  formatCardNumber,
+  normalizeCardNumber,
+  supportedCardLengths,
+} from '../validation';
 import styles from '../App.module.css';
 
 const caretAfterDigits = (formatted: string, count: number) => {
@@ -28,6 +39,7 @@ export function CardNumberField({
   inputRef,
   error,
   helperText,
+  onValidate,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -35,9 +47,11 @@ export function CardNumberField({
   inputRef: Ref<HTMLInputElement>;
   error: boolean;
   helperText?: string;
+  onValidate?: () => void;
 }) {
   const element = useRef<HTMLInputElement | null>(null);
   const pendingCaret = useRef<number | null>(null);
+  const [overflowMessage, setOverflowMessage] = useState('');
   const formatted = formatCardNumber(value);
 
   useLayoutEffect(() => {
@@ -50,6 +64,11 @@ export function CardNumberField({
   }, [formatted]);
 
   const update = (raw: string, rawCaret: number) => {
+    const rawDigits = raw.replace(/\D/g, '');
+    const max = cardNumberMax(rawDigits);
+    setOverflowMessage(
+      rawDigits.length > max ? `El número admite máximo ${max} dígitos.` : '',
+    );
     const digitsBeforeCaret = normalizeCardNumber(
       raw.slice(0, rawCaret),
     ).length;
@@ -59,6 +78,7 @@ export function CardNumberField({
       Math.min(digitsBeforeCaret, digits.length),
     );
     onChange(digits);
+    if (supportedCardLengths(digits).includes(digits.length)) onValidate?.();
   };
 
   return (
@@ -67,7 +87,10 @@ export function CardNumberField({
         label="Número de tarjeta"
         id="card.number"
         value={formatted}
-        onBlur={onBlur}
+        onBlur={() => {
+          onBlur();
+          onValidate?.();
+        }}
         onChange={(event) =>
           update(
             event.target.value,
@@ -82,7 +105,8 @@ export function CardNumberField({
           htmlInput: {
             inputMode: 'numeric',
             pattern: '[0-9 -]*',
-            maxLength: 23,
+            maxLength:
+              cardNumberMax(value) + Math.floor((cardNumberMax(value) - 1) / 4),
             autoComplete: 'off',
             'aria-label': 'Número de tarjeta',
             onPaste: (event: ClipboardEvent<HTMLInputElement>) => {
@@ -96,8 +120,19 @@ export function CardNumberField({
               const pastedDigits = normalizeCardNumber(
                 event.clipboardData.getData('text'),
               );
+              const pastedRaw = event.clipboardData
+                .getData('text')
+                .replace(/\D/g, '');
+              const combinedRaw =
+                prefixDigits + pastedRaw + normalizeCardNumber(after);
+              const max = cardNumberMax(combinedRaw);
+              setOverflowMessage(
+                combinedRaw.length > max
+                  ? `El número admite máximo ${max} dígitos.`
+                  : '',
+              );
               const digits = normalizeCardNumber(
-                prefixDigits + pastedDigits + normalizeCardNumber(after),
+                prefixDigits + pastedRaw + normalizeCardNumber(after),
               );
               pendingCaret.current = caretAfterDigits(
                 formatCardNumber(digits),
@@ -107,12 +142,14 @@ export function CardNumberField({
                 ),
               );
               onChange(digits);
+              if (supportedCardLengths(digits).includes(digits.length))
+                onValidate?.();
             },
           },
           formHelperText: { role: 'alert' },
         }}
-        error={error}
-        helperText={helperText}
+        error={error || !!overflowMessage}
+        helperText={overflowMessage || helperText}
       />
       <CardBrands number={value} />
     </div>

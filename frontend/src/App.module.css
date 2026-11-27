@@ -636,29 +636,41 @@
   overscroll-behavior: contain;
 }
 .formProgress {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin: 0 0 24px;
+  position: relative;
+  display: flex;
+  gap: 4px;
+  margin: 0 0 16px;
+  padding: 2px 0;
+}
+.formProgress::before {
+  position: absolute;
+  top: 15px;
+  right: 16.66%;
+  left: 16.66%;
+  height: 2px;
+  background: #e4e4e7;
+  content: '';
 }
 .formProgressStep {
+  position: relative;
+  z-index: 1;
+  flex: 1;
   min-width: 0;
-  min-height: 52px;
-  display: grid !important;
-  grid-template-columns: auto auto;
-  grid-template-rows: auto auto;
+  min-height: 32px;
+  display: flex !important;
   align-items: center;
   justify-content: center !important;
-  gap: 1px 6px;
-  padding: 8px !important;
-  border: 1px solid #e4e4e7 !important;
-  border-radius: 10px !important;
+  gap: 6px;
+  padding: 2px 6px !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: #fff !important;
   color: #52525b !important;
 }
 .formProgressStep > span {
-  grid-row: 1 / 3;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
+  flex: none;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -667,20 +679,21 @@
   font-weight: 700;
 }
 .formProgressStep strong {
-  grid-column: 2;
   font-size: 11px;
 }
 .formProgressStep[data-state='actual'] {
-  border-color: #2563eb !important;
-  background: #eff6ff !important;
   color: #1d4ed8 !important;
+}
+.formProgressStep[data-state='actual'] > span {
+  background: #2563eb;
+  color: #fff;
 }
 .formProgressStep[data-state='completado'] > span {
   background: #dcfce7;
   color: #166534;
 }
 .formProgressStep[data-state='bloqueado'] {
-  opacity: 0.5;
+  opacity: 0.62;
 }
 .formProgressStep:focus-visible {
   outline: 3px solid #facc15;
@@ -860,6 +873,41 @@
   padding: 24px;
   border-radius: 6px;
   margin: 28px 0;
+}
+.summarySection,
+.orderProduct,
+.paymentMethod,
+.totals {
+  animation: checkoutEnter 0.2s ease-out both;
+}
+.orderProduct {
+  animation-delay: 0.03s;
+}
+.paymentMethod {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  background: #fff;
+  animation-delay: 0.06s;
+}
+.paymentMethod > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.paymentMethod span {
+  color: #64748b;
+  font-size: 11px;
+}
+.paymentMethod strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.totals {
+  animation-delay: 0.09s;
 }
 .summarySection {
   border: 1px solid #e4e4e7;
@@ -1045,6 +1093,21 @@
   place-items: center;
   font-size: 42px;
   color: #15803d;
+}
+.resultSymbol.success {
+  animation: successConfirm 0.35s ease-out both;
+}
+@keyframes checkoutEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes successConfirm {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
 }
 .resultSymbol.warning {
   background: #fef3c7;
@@ -1233,17 +1296,19 @@
     padding: 16px 16px 0 !important;
   }
   .formProgressStep {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto;
-    justify-items: center;
-    gap: 3px;
+    gap: 4px;
+    padding-inline: 2px !important;
+  }
+  .formProgressStep strong {
+    font-size: 10px;
   }
   .formProgressStep > span {
-    display: none;
+    width: 24px;
+    height: 24px;
   }
-  .formProgressStep strong,
-  .formProgressStep svg {
-    grid-column: 1;
+  .paymentMethod {
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
   .summaryHeading {
     align-items: start;
@@ -1444,23 +1509,10 @@
     display: none;
   }
   .formProgress {
-    gap: 6px;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
   }
   .formProgressStep {
-    min-height: 40px;
-    grid-template-columns: auto 1fr;
-    grid-template-rows: 1fr;
-  }
-  .formProgressStep > span {
-    grid-row: 1;
-  }
-  .formProgressStep strong,
-  .formProgressStep svg {
-    grid-column: auto;
-  }
-  .formProgressStep svg {
-    display: none;
+    min-height: 28px;
   }
   .stepHeading {
     gap: 8px;

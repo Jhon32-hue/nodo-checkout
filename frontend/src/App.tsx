@@ -87,7 +87,7 @@ export function App({ flow }: { flow: Flow }) {
       if (timer) window.clearTimeout(timer);
     };
   }, [approvedTransition, flow]);
-  const checkoutDraft =
+  const checkoutDraft: DetailsDraft | undefined =
     draft && draft.checkoutId === checkout?.id
       ? draft
       : checkout
@@ -567,6 +567,7 @@ export function App({ flow }: { flow: Flow }) {
                     !!s.attempt && s.attempt.dispatchStatus !== 'NOT_SENT'
                   }
                   canConfirm={flow.canConfirm()}
+                  cardNumber={checkoutDraft?.card?.number}
                 />
               )
             )}

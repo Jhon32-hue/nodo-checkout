@@ -379,6 +379,7 @@ describe('Compra y recuperación sin reenviar pagos', () => {
     await f.flow.confirm();
     expect(f.api.attempt).toHaveBeenCalledWith(attempt.id);
     expect(f.store.getState().attempt?.dispatchStatus).toBe('UNKNOWN');
+    expect(f.store.getState().error).toContain('No repetiremos el cobro');
     await f.flow.confirm();
     expect(f.api.pay).toHaveBeenCalledTimes(1);
     await f.flow.sync();

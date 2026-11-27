@@ -379,12 +379,16 @@ export class Flow {
           /* The confirmed result remains visible if the read-only detail fails. */
         }
       } catch (error) {
+        let publicError = error;
         try {
-          this.publishAttempt(await this.api.attempt(t.id));
+          const observed = await this.api.attempt(t.id);
+          this.publishAttempt(observed);
+          if (observed.dispatchStatus === 'UNKNOWN')
+            publicError = new ApiError('PAYMENT_RESULT_UNKNOWN');
         } catch {
           /* Result screen preserves the known ID; never resend pay. */
         }
-        throw error;
+        throw publicError;
       } finally {
         this.forgetCard();
       }
