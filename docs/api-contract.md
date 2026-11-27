@@ -64,7 +64,7 @@ se envuelven en error.code/error.message. Swagger describe parámetros y respues
 
 ## Endpoints
 
-GET y POST checkout-sessions no admiten body; POST sync tampoco lo necesita; los campos de entrada de las demás rutas se
+POST checkout-sessions no admite body; POST sync tampoco lo necesita; los campos de entrada de las demás rutas se
 indican abajo. Los códigos de forma/autorización/infraestructura son comunes.
 
 | Método y ruta bajo /api/v1  | Caso de uso / acceso                            | Entrada                                                  | Éxito y efecto                                                                                          | Errores clave                                                                               |
@@ -82,7 +82,6 @@ indican abajo. Los códigos de forma/autorización/infraestructura son comunes.
 | POST /transactions/:id/pay  | StartPayment / W                                | cardToken, installments=1, acceptance                    | 202 pendiente o 200 final; claim durable antes de HTTP; idempotente por ID+hash                         | 409 PAYLOAD_CONFLICT/RESERVATION_EXPIRED, 422 aceptación/cuota                              |
 | GET /transactions/:id       | GetTransaction / S                              | UUID                                                     | 200 estado local y summary histórico; nunca consulta/cobra al proveedor                                 | 404                                                                                         |
 | POST /transactions/:id/sync | SyncPayment / W                                 | UUID, sin cuerpo                                         | 200 final/no enviado, 202 pendiente/incierto; consulta proveedor y finalización compartida, nunca cobro | 409 OBSERVATION_CONFLICT, 503 proveedor                                                     |
-| POST /webhooks/payments     | ReceivePaymentEvent / firma de proveedor        | Evento transaction.updated                               | 200 tras procesamiento durable, duplicado o ajeno ignorado; misma finalización                          | 400 esquema, 403 firma, 503 persistencia                                                    |
 
 Validaciones mínimas: quantity 1..99; buyer.fullName y recipientName 2..120,
 email válido <=254, teléfonos E.164 <=16; addressLine1 3..200, city/region 2..100,
@@ -111,13 +110,13 @@ La aplicación vuelve a comprobar reglas de negocio y devuelve 422 INVALID_BUYER
 INVALID_DELIVERY, INVALID_QUANTITY o INVALID_AMOUNT. Error SQL: 503
 PERSISTENCE_UNAVAILABLE sanitizado. PATCH comprueba propiedad/estado bajo lock y
 guarda cliente específico de la compra y delivery_draft en el mismo commit.
-No hay filas deliveries hasta implementar aprobación; no modifica inventario.
+PATCH no crea deliveries ni modifica inventario; la aprobación verificada sí lo hace.
 El resumen de producto inactivo o compra bloqueada sin histórico devuelve 409
 CHECKOUT_LOCKED. Las operaciones privadas usan Cache-Control: no-store.
 
 Vista de compra: data contiene id, productId, quantity, status, buyer y delivery
 (objetos o null), activeTransactionId, latestTransactionId y deliveryId (IDs o null).
-[Recorrido PowerShell con cookies/Origin/CSRF](../README.md#probar-compra-recuperable-powershell).
+[Recorrido de evaluación](../README.md#probar-una-compra-sandbox).
 
 Resumen DRAFT se recalcula con el catálogo/tarifas actuales, sin guardarse.
 CreateTransaction compara **todos** los campos de acceptedSummary con el cálculo
@@ -224,13 +223,13 @@ NOT_SENT vencido (incluye históricos EXPIRED), sin mutar filas; pay marca EXPIR
 
 ## Errores y recuperación
 
-400 estructura; 401 sesión; 403 CSRF/firma/Origin; 404 recurso ajeno/inexistente;
+400 estructura; 401 sesión; 403 CSRF/Origin; 404 recurso ajeno/inexistente;
 409 conflicto de estado, resumen, clave/payload o stock; 422 validación de
-negocio; 429 con Retry-After para frecuencia; 503 infraestructura no disponible.
+negocio; 503 infraestructura no disponible. Rate limiting/429 sigue pendiente.
 Diagnóstico interno del adaptador: operación configuration/creation/query, motivo
 transport/http/json/schema (o configuración local inválida) y HTTP externo cuando
 existe. Logs con lista permitida: ID local, referencia, etapa, código sanitizado,
-HTTP e ID remoto validado; sin cuerpos, tokens ni datos del comprador. La respuesta
+HTTP y fingerprint abreviado del ID remoto validado; sin cuerpos, tokens ni datos del comprador. La respuesta
 pública conserva su formato y no expone estos detalles internos.
 
 No filtrar errores/cuerpos externos. UNKNOWN mantiene reserva y bloquea nuevo
@@ -259,7 +258,7 @@ IN_FLIGHT/SUBMITTED/UNKNOWN no se liberan por tiempo. No se bloquean compras aje
 GET solo lee datos históricos; añade reservationStatus y reservationExpired,
 reference, createdAt/finalizedAt y summary. No publica snapshots personales ni
 hashes. Recursos ajenos/inexistentes: mismo 404; resultado negativo definitivo: 200.
-[Pasos PowerShell](../README.md#crear-intento-y-reservar-powershell).
+[Secuencia e idempotencia](checkout-flow.md#idempotencia-y-concurrencia-sin-tablas-genéricas).
 
 ## Adaptador Wompi y verificaciones pendientes
 
@@ -317,8 +316,9 @@ terminó PENDING/UNKNOWN/HELD, sin reenvío ni DECLINED confirmado. No se declar
 resuelto ni se reproduce como éxito simulado. Un ensayo posterior independiente,
 con el cliente corregido, sí confirmó DECLINED: creación remota 201, consulta 200,
 RELEASED, stock intacto, ninguna entrega y checkout DRAFT. Se guardó evidencia
-antes del teardown; esto no recupera el intento perdido. Ver [evidencia resumida](../README.md#pago-sandbox-y-sincronización).
-CORS de navegador, rechazo real, eventos y recuperación sin ID no están verificados.
+antes del teardown; esto no recupera el intento perdido. Son ensayos anteriores,
+no ejecuciones de las suites unitarias. Esta revisión no repite pagos ni acredita
+el recorrido completo actual del navegador. Eventos y recuperación sin ID siguen pendientes.
 
 Llave privada y secretos de integridad/eventos solo backend, inyectados; no copiar
 credenciales del PDF ni modificar la cuenta compartida. Quedan por verificar CORS de navegador, límites completos y errores que
@@ -326,7 +326,8 @@ garantizan ausencia de cobro; los GET de configuración y un aprobado ya se prob
 es una capacidad pendiente, no una ruta asumida; si no existe, revisión manual
 sin liberar/reintentar automáticamente.
 
-Webhook verifica checksum según properties + timestamp + secreto de eventos,
+Webhook no implementado ni expuesto en OpenAPI. El diseño propuesto verificaría
+checksum según properties + timestamp + secreto de eventos,
 con comparación segura y paths válidos. Comprobar ambiente y pertenencia local,
 reconsultar al proveedor si la firma no cubre todos los datos antes de finalizar.
 Si no puede consultar, 503 para reentrega; el usuario también puede usar sync.

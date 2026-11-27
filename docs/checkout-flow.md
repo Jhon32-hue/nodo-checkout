@@ -1,6 +1,6 @@
 # Recorrido y reglas de checkout
 
-**Backend de catálogo, sesión, borrador/resumen y creación/consulta de intentos con reserva implementados; configuración/pay/sync/finalización sandbox implementados; frontend con inicio, detalle, carrito y checkout implementado, recorrido de pago en navegador pendiente; webhook pendiente.**
+**Backend de catálogo, sesión, borrador/resumen, intentos/reservas y pagos implementado; frontend con tienda, carrito de compras independientes, historial y checkout implementado. Webhook pendiente.** Esta revisión no repite pagos reales desde navegador.
 Ver [modelo](data-model.md), [contrato HTTP](api-contract.md) y [estado actual](../README.md).
 
 ## Cinco pantallas
@@ -14,8 +14,8 @@ Ver [modelo](data-model.md), [contrato HTTP](api-contract.md) y [estado actual](
 | 5. Producto          | Consultar de nuevo disponibilidad y permitir otra compra. Una compra pagada no se reutiliza para cobrar.                                                                                                                                                                                           |
 
 Tarifas ficticias implementadas en el resumen: base 50000 y entrega 100000 centavos por compra,
-COP y una cuota. Ejemplo: 2 × 12990000 + 50000 + 100000 = 26130000. Confirmar estos
-valores y los límites del proveedor antes de implementar la integración.
+COP y una cuota. Ejemplo: 2 × 12990000 + 50000 + 100000 = 26130000. Los límites
+completos del proveedor deben verificarse antes de ampliar el uso del assessment.
 
 ## Arquitectura pequeña, con límites reales
 
@@ -25,7 +25,7 @@ encapsula Wompi y Fulfillment crea la entrega. No nuevos microservicios ni bus.
 
 ```mermaid
 flowchart LR
-    HTTP[Controllers y webhook] --> APP[Casos de uso]
+    HTTP[Controllers HTTP] --> APP[Casos de uso]
     APP --> DOMAIN[Dominio puro]
     APP --> PORTS[Puertos]
     SQL[Adaptadores TypeORM] --> PORTS
@@ -36,9 +36,9 @@ flowchart LR
     N --> W
 ```
 
-Las flechas son dependencias de código. Checkout consume contratos de Catalog,
-Payments y Fulfillment; estos no importan Checkout. El webhook es una entrada
-de Checkout que utiliza el verificador de Payments. NestJS conecta dependencias.
+Las flechas muestran dependencias entre capas. NestJS conecta los adaptadores
+a los puertos. Payments utiliza contratos del intento de Checkout; dominio y
+aplicación no dependen de NestJS, TypeORM o HTTP. No hay webhook implementado.
 
 La estructura existente usa `domain/`, `application/` e `infrastructure/`.
 Dominio contiene entidades/reglas puras, sin NestJS, HTTP o TypeORM. Aplicación
@@ -55,25 +55,7 @@ no exponen EntityManager. PaymentGateway ya está implementado; no se introdujo
 una UoW genérica adicional ni un repositorio CRUD universal.
 Controllers validan forma/autorizan y traducen resultados, no calculan ni cobran.
 
-ROP con neverthrow, ejemplo de firmas (propuestas, no código implementado):
-
-```typescript
-type CreateAttemptError =
-  | { kind: "SummaryChanged" }
-  | { kind: "InsufficientStock" }
-  | { kind: "CheckoutLocked" }
-  | { kind: "IdempotencyConflict" }
-  | { kind: "PersistenceUnavailable" };
-
-interface CreateTransaction {
-  execute(
-    input: CreateAttemptInput,
-  ): ResultAsync<AttemptView, CreateAttemptError>;
-}
-// Dentro de la UoW: cargar compra autorizada -> comprobar resumen
-// -> reservar y crear intento. andThen encadena pasos que pueden fallar;
-// map transforma el éxito en AttemptView, mapErr traduce errores del adaptador.
-```
+ROP implementado con Result y ResultAsync de neverthrow en casos de uso y puertos.
 
 Usar Result para reglas puras y ResultAsync para I/O. Capturar excepciones de
 librerías como unknown en adaptadores, sin any, unwrap ni excepciones genéricas
@@ -144,8 +126,8 @@ reloj. La expiración se confirma antes de devolver el error al cliente, no se
 revierte accidentalmente por lanzar una excepción dentro de la UoW.
 
 No hay jobs, leases ni scheduler durable en el assessment. POST sync usa FinalizePayment; el webhook pendiente reutilizará el mismo caso. Sync puede consultar simultáneamente: son lecturas externas
-y la aplicación del resultado se serializa en SQL. El frontend solicita sync
-cada 5 segundos mientras está pendiente y visible, con backoff ante errores,
+y la aplicación del resultado se serializa en SQL. El frontend limita el polling
+a ocho consultas visibles, con espera progresiva de 5 a 30 segundos y cancelación al salir,
 y GET recupera el estado local. GET no llama al proveedor ni cambia datos.
 IN_FLIGHT de más de 30 segundos se trata como UNKNOWN al sincronizar; nunca
 habilita reenvío por tiempo.
@@ -153,10 +135,9 @@ habilita reenvío por tiempo.
 Con ID remoto se consulta al proveedor. Sin ID se debe verificar en UAT si hay
 búsqueda por referencia o garantía remota equivalente; no se inventa una ruta.
 Sin esa capacidad, mantener bloqueo/reserva y revisar en la cuenta del proveedor
-hasta obtener evidencia definitiva. Webhook puede recuperar el ID, pero no se
-presupone su llegada. Un not-found aislado o timeout no autoriza liberar/repetir.
+hasta obtener evidencia definitiva. No existe webhook que recupere el ID. Un not-found aislado o timeout no autoriza liberar/repetir.
 
-**Limitación explícita:** si se cierra el navegador y no llega webhook, no hay
+**Limitación explícita:** si se cierra el navegador, no hay
 reconciliación automática en segundo plano. Continúa al volver/sync o por revisión
 manual. Mientras tanto stock incierto permanece reservado. Un scheduler solo se
 añadiría en otra tarea si se requiere recuperación independiente del navegador.
@@ -168,7 +149,8 @@ compra/intento. Origin permitido + token CSRF vinculado a la sesión para
 escrituras; emitir/recuperar CSRF al iniciar sesión. Mismo origen en AWS; en Vite
 local usar el proxy Vite /api, conservando Origin y cookie del mismo origen.
 
-localStorage conserva solo checkoutId/transactionId/paso y clave de idempotencia;
+localStorage conserva nodo.checkout.v1 con checkoutId/transactionId/paso y clave
+de idempotencia, y nodo.cart.v1 con una lista de productId/quantity;
 Redux no se persiste. En el navegador, comprador y entrega viven solo en memoria
 del formulario y, igual que tarjeta y tokens, nunca se guardan en Redux, Local
 Storage o Session Storage. El backend sí persiste comprador y destino en
@@ -197,42 +179,129 @@ recuperación por correo en este assessment.
 | Tablas genéricas de idempotencia/eventos     | Clave y hashes en intento; finalización idempotente                     | Sin bitácora completa de cada evento; logs mínimos de ID/estado/conflicto                                 |
 | Triggers y snapshots financieros duplicados  | Campos históricos únicos, repositorios sin operación de edición y tests | Protege escrituras de la aplicación, no SQL privilegiado                                                  |
 | Contadores reservados y jobs de expiración   | Suma de reservas activas bajo lock de producto                          | Consulta suficiente para catálogo pequeño; pago incierto sigue retenido                                   |
-| Jobs con leases                              | Sync del frontend + webhook + revisión manual                           | No recuperación automática cuando ambos faltan                                                            |
+| Jobs con leases                              | Sync del frontend y revisión manual; webhook pendiente                  | No recuperación automática cuando el navegador está cerrado                                               |
 | Procedimientos de retención/anonimización    | Solo datos ficticios y secretos fuera del repo                          | Política de producción pendiente, no resuelta                                                             |
 
-## Pruebas y plan de dos días
+## Verificación del recorrido
 
-**Día 1:** Money/reglas con Jest; migraciones y seed; catálogo; sesión/borrador y
-resumen; CreateTransaction/reservas con integración SQL. Validar temprano UAT
-(contratos, tokenización, límites, auth, firma y recuperación sin ID): es un riesgo
-que no debe descubrirse al final.
+Unitarias Jest comprueban importes, decisiones de aplicación, HTTP y adaptadores
+con dobles. PostgreSQL aislado comprueba restricciones, última unidad concurrente,
+claims, idempotencia y rollback efectivo. E2E comprueba autorización por sesión,
+contratos y pagos con proveedor simulado. Los resultados actuales están en
+[pruebas y cobertura](../README.md#pruebas-y-cobertura). Las unitarias no prueban
+concurrencia real ni sustituyen una verificación UAT desde navegador.
 
-**Día 2:** StartPayment, FinalizePayment, sync y webhook; SPA de cinco pasos,
-refresh y responsive; cobertura real; build Linux y despliegue AWS. Es un plan de
-priorización, no garantía de completar todas las tareas en ese plazo. Recortar
-ornamentación antes que seguridad, pruebas o recorrido funcional.
+Los ensayos UAT anteriores confirmaron un aprobado y un rechazo independiente;
+un intento previo sin ID quedó incierto y no se reconstruyó. No se ha repetido
+ningún pago durante la revisión documental. Webhooks y recuperación remota sin ID
+siguen pendientes.
 
-Unitarias Jest: importes/overflow, tarifas, validaciones, estados y errores ROP.
-Integración con PostgreSQL aislado: migraciones/seed, última unidad concurrente,
-doble claim, rollback, clave repetida/diferente y aprobación aplicada una vez.
-E2e API: sesión/CSRF, recurso ajeno 404, compra aprobada/rechazada, timeout y sync,
-eventos duplicados. Frontend Jest/RTL: detalle, carrito de un producto, formulario, cinco pasos, doble clic,
-restore tras refresh y no persistir tarjeta. UAT smoke separado de tests
-simulados, exclusivamente sandbox.
+## Carrito y continuidad del navegador
 
-PDF pp. 2-3: recorrido, stock/clientes/transacciones/entregas y refresh; p. 4:
-SPA React/Redux, seed, lógica fuera de controllers y Jest >80 % en **ambos**
-proyectos; pp. 5-6: sandbox, repositorio público y entrega desplegada. La meta
-interna se mantiene >=85 % por proyecto. Hexagonal, ROP y clean code siguen
-siendo criterios explícitos; revisar imports y probar núcleo sin Nest/SQL/HTTP.
-Ya existen pruebas de persistencia para migración/seed, restricciones, relaciones,
-índices, dos inserciones concurrentes de intento activo y disponibilidad del
-catálogo (reservas vigentes, liberadas y vencidas con envío incierto), transición
-segura del catálogo de diez productos y rechazo de query no admitida. Money y
-consulta de productos tienen pruebas unitarias. Sesión y casos de borrador/resumen
-se prueban sin Nest/SQL; integración comprueba clientes por compra y escrituras
-concurrentes bajo lock. E2e con DB aislada cubre autorización, validación, resumen,
-rollback, histórico y recuperación al recrear NestJS. Las pruebas de reserva/última unidad, idempotencia, rollback y expiración propia
-ya existen en PostgreSQL aislado. Cobros y finalización tienen unitarias, SQL/e2e simulados y un aprobado UAT;
-el primer rechazo quedó incierto y un ensayo independiente posterior confirmó DECLINED,
-reserva liberada, stock intacto, ninguna entrega y checkout DRAFT. Frontend implementado con Jest/RTL simulado; inicio, detalle, carrito y modal se inspeccionaron en Chrome de escritorio y emulación iPhone SE 375×667, y el carrito en horizontal 667×375. CORS/tokenización, resumen/resultado y el recorrido completo en navegador siguen pendientes. Webhook pendiente. El código nuevo no cambia esas tablas.
+El carrito mantiene varias líneas como cola de compras independientes. Cada línea
+conserva productId y quantity; no hay pago conjunto. Tras aprobar, se elimina solo
+la línea comprada, se consultan catálogo e historial y se vuelve al inicio después
+de mostrar el resultado. El stock definitivo siempre procede del servidor.
+La ficha breve del producto se abre dentro del checkout sin reiniciar el proceso.
+
+El inicio no abre automáticamente el modal. Un borrador ofrece continuar o
+descartar solo su puntero local. Un intento enviado o incierto mantiene el bloqueo.
+Si la cookie actual no permite recuperar un puntero antiguo, se informa que la
+compra permanece registrada y se exige una acción explícita para iniciar otra;
+el carrito se conserva. Consultar historial/detalle no ejecuta pay ni sync.
+
+Para revisar privacidad en Chrome:
+
+- Application → Local Storage: nodo.cart.v1 y nodo.checkout.v1, con los campos
+  limitados descritos arriba. No debe haber tarjeta, CVC, token ni dirección.
+- Application → Session Storage: la aplicación no escribe datos allí.
+- Application → Cookies: checkout_session es HttpOnly; no copiar su valor.
+- Redux DevTools está desactivado; el store y sus acciones solo reciben vistas
+  públicas, carrito y estado de interfaz, no comprador, destino ni tarjeta.
+- Network: nuestras solicitudes van a /api; el POST cifrado de tokenización va
+  directamente al proveedor. No exportar HAR con cookies, tokens o datos personales.
+
+## Observabilidad local
+
+Iniciar PostgreSQL, API y frontend siguiendo [ejecución local](../README.md#ejecución-local).
+La terminal de Nest muestra eventos JSON permitidos, como transaction.created,
+reservation.held, payment.claimed, provider.transaction.saved, payment.unknown,
+payment.finalized.approved/declined, inventory.confirmed y delivery.created.
+Los cambios persistidos se registran después del commit; nunca se imprimen cuerpos,
+tarjeta, tokens, cookies, claves o datos personales. El ID remoto se correlaciona
+mediante fingerprint abreviado, no por su valor completo.
+
+Para una compra ficticia ya creada, copiar el ID local del intento desde la
+respuesta de nuestra API y ejecutar desde backend:
+
+```powershell
+npm run inspect:transaction -- <transactionId>
+```
+
+El inspector valida UUID, usa parámetros y una transacción READ ONLY, muestra
+estados/importes/timestamps, reserva, stock y entrega; presenta centavos enteros y
+pesos COP. No ejecuta migración ni seed. Devuelve error para ID inválido, inexistente
+o fallo de conexión. GET /api/v1/transactions/:id consulta solo PostgreSQL con la
+cookie propietaria. POST sync se utiliza para reconciliar un intento ya enviado;
+no es una acción de cobro ni una recuperación por UUID sin autorización.
+
+## Pruebas PostgreSQL aisladas
+
+Integración crea bases payment_checkout_test_* y las elimina en finally.
+Requiere PostgreSQL disponible y un rol de pruebas con CREATEDB. Ejecutar desde backend:
+
+```powershell
+npm run test:integration
+```
+
+Las e2e de catálogo y checkout también crean su base. app.e2e-spec.ts utiliza
+DB_NAME del proceso, por lo que las e2e completas requieren una base temporal
+externa. Este procedimiento PowerShell usa el entorno existente sin imprimir
+credenciales, ejecuta el script oficial sin filtros y elimina solo la base creada:
+
+```powershell
+@'
+const { loadDatabaseEnvironment } = require('./src/infrastructure/database/load-environment');
+const { Client } = require('pg');
+const { randomBytes } = require('node:crypto');
+const { spawnSync } = require('node:child_process');
+(async () => {
+  const e = loadDatabaseEnvironment();
+  const name = 'payment_checkout_test_' + randomBytes(8).toString('hex');
+  if (!/^payment_checkout_test_[0-9a-f]{16}$/.test(name) || name === e.DB_NAME)
+    throw new Error('Unsafe test database');
+  const admin = new Client({ host: e.DB_HOST, port: e.DB_PORT,
+    user: e.DB_USER, password: e.DB_PASSWORD, database: 'postgres' });
+  let created = false;
+  try {
+    await admin.connect();
+    await admin.query('CREATE DATABASE "' + name + '"');
+    created = true;
+    const run = spawnSync(process.env.ComSpec || 'cmd.exe',
+      ['/d', '/s', '/c', 'npm run test:e2e -- --runInBand'],
+      { env: { ...process.env, DB_NAME: name }, stdio: 'inherit' });
+    process.exitCode = run.status === 0 ? 0 : 1;
+  } finally {
+    try {
+      if (created) await admin.query('DROP DATABASE "' + name + '"');
+    } finally { await admin.end(); }
+  }
+})().catch(() => { console.error('E2E execution or cleanup failed'); process.exitCode = 1; });
+'@ | node -r ts-node/register
+```
+
+No usa la base de desarrollo. Los proveedores de las pruebas financieras están
+simulados; las suites no crean pagos reales. Este procedimiento se verificó en
+Windows; no se atribuye a Linux/AWS. La cobertura unitaria se mide por separado.
+
+## Referencias de presentación
+
+Fotos y banner locales se relacionan por SKU, sin duplicar precios ni existencias.
+El texto decorativo del banner no representa un descuento aplicado.
+Inter se aloja localmente con [SIL Open Font License](../frontend/public/fonts/OFL.txt).
+Las composiciones de 21st se usaron como referencia, sin copiar su código:
+[Commerce Hero](https://21st.dev/@bankkroll/components/commerce-hero),
+[categorías](https://21st.dev/@ziegfiroyt/components/ecommerce4),
+[listado](https://21st.dev/@clevision/components/shadcn-studio-product-list-01) y
+[checkout](https://21st.dev/@preetsuthar17/components/checkout-block).
+No se incorporaron Next.js, Tailwind ni shadcn.

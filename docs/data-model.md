@@ -69,7 +69,7 @@ una vez PAYMENT_PENDING ninguna edición puede modificar el intento.
 | Resultado    | status varchar(32), dispatch_status varchar(32), last_error_code varchar(64) ?                                                                                                                                                       | Estados y combinaciones del flujo; errores seguros propios                              |
 | Proveedor    | provider_transaction_id varchar(128) ?, provider_environment varchar(16)                                                                                                                                                             | UNIQUE(provider_environment, provider_transaction_id); UAT_SANDBOX                      |
 | Histórico    | product_id FK, product_name varchar(120), product_description text, quantity smallint, unit_price_cents integer, base_fee_cents integer, delivery_fee_cents integer, currency char(3), buyer_snapshot jsonb, delivery_snapshot jsonb | Información congelada al crear el intento; solo datos necesarios de comprador/destino   |
-| Aceptaciones | acceptance_evidence jsonb ?                                                                                                                                                                                                          | Tipos/URLs de contratos, digests y fecha de aceptación explícita, sin tokens en claro   |
+| Aceptaciones | acceptance_evidence jsonb ?                                                                                                                                                                                                          | Consentimientos explícitos y hashes de tokens; sin tokens en claro                      |
 | Fechas       | submission_started_at timestamptz ?, finalized_at timestamptz ?                                                                                                                                                                      | Inicio antes de HTTP; finalized_at solo terminal                                        |
 
 No duplicar los importes en otro snapshot JSON ni guardar un total independiente:
@@ -101,8 +101,8 @@ idempotente y attemptNumber bajo lock de checkout. Expira solo su NOT_SENT venci
 la expiración se confirma ante errores posteriores de negocio, mientras un fallo
 SQL revierte toda la creación parcial. FinalizePayment crea entrega solo con
 aprobación verificada, en el mismo commit que confirma inventario. Su producto/destino
-histórico se obtiene del intento: no se copia otra vez. READY significa lista
-para entregar, no integración con transportista.
+histórico se obtiene del intento: no se copia otra vez. READY identifica una entrega
+registrada internamente; no acredita preparación física ni despacho de transportista.
 
 `products.stock` son unidades aún no vendidas. Disponible = stock menos la suma
 de reservas HELD vigentes. Una HELD con envío NOT_SENT y expires_at vencido deja
@@ -127,8 +127,8 @@ CRUD adicional.
   compartidas con NestJS, validación existente y synchronize/migrationsRun=false.
 - Inicial `1795632838292-InitialSchema.ts`: siete tablas, FKs RESTRICT, CHECKs e
   índices. FKs compuestas vinculan entrega a su compra y reserva al producto y
-  cantidad de su intento. Aprobación/stock/entrega en un commit requieren todavía
-  la UoW de aplicación: las FKs por sí solas no lo garantizan.
+  cantidad de su intento. PaymentStore/FinalizePayment coordinan aprobación,
+  stock y entrega en una transacción; las FKs por sí solas no garantizan atomicidad.
 - AddProductCategory1795643379559 añade el campo nullable y su CHECK. Migra una
   sola vez los dos originales a AUD-001/AUD-002 si sus datos coinciden con la
   versión original; preserva UUID, stock, reservas y snapshots. Si fueron
@@ -138,7 +138,7 @@ CRUD adicional.
   Repetirlo preserva stock consumido, productos ajenos y ediciones posteriores,
   incluso cambios posteriores de SKU. No se vuelve a ejecutar la transformación
   como parte del seed: queda registrada por el historial de migraciones.
-- [Comandos reales en README](../README.md#migraciones-y-seed). La prueba
+- [Comandos reales en README](../README.md#ejecución-local). La prueba
   `npm run test:integration` crea una DB aleatoria aislada, verifica up/down/up,
   equivalencia ORM/esquema, seed repetido, límites, FKs e índices concurrentes.
   Necesita CREATEDB en el servidor local y borra solo su propia base temporal.
