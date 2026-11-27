@@ -37,6 +37,23 @@ const delivery = () => ({
   postalCode: '  110111  ',
 });
 
+function transactionRequestDto(): Type<unknown> {
+  const parameterTypes: unknown = Reflect.getMetadata(
+    'design:paramtypes',
+    TransactionsController.prototype,
+    'create',
+  );
+  expect(Array.isArray(parameterTypes)).toBe(true);
+  const metatype: unknown = Array.isArray(parameterTypes)
+    ? parameterTypes[2]
+    : undefined;
+  expect(typeof metatype).toBe('function');
+  if (typeof metatype !== 'function')
+    throw new Error('Transaction request DTO missing');
+  expect(metatype.name).toBe('CreateTransactionDto');
+  return metatype as Type<unknown>;
+}
+
 describe('checkout HTTP DTO validation', () => {
   it('accepts a UUID v4 and quantity boundaries', async () => {
     const productId = '11111111-1111-4111-8111-111111111111';
@@ -107,12 +124,7 @@ describe('checkout HTTP DTO validation', () => {
   });
 
   it('validates the transaction request DTO used by the controller', async () => {
-    const parameterTypes = Reflect.getMetadata(
-      'design:paramtypes',
-      TransactionsController.prototype,
-      'create',
-    ) as Type<unknown>[];
-    const transactionDto = parameterTypes[2];
+    const transactionDto = transactionRequestDto();
     const valid = {
       checkoutId: '11111111-1111-4111-8111-111111111111',
       acceptedSummary: {

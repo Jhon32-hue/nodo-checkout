@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, HttpException } from '@nestjs/common';
 import { errAsync, okAsync } from 'neverthrow';
 import {
   CreateTransaction,
@@ -73,9 +73,24 @@ function request(): CheckoutRequest {
 }
 
 function fixture() {
-  const create = jest.fn(() => okAsync(attempt));
-  const get = jest.fn(() => okAsync(details));
-  const list = jest.fn(() => okAsync([history]));
+  const create = jest
+    .fn<
+      ReturnType<CreateTransaction['execute']>,
+      Parameters<CreateTransaction['execute']>
+    >()
+    .mockImplementationOnce(() => okAsync(attempt));
+  const get = jest
+    .fn<
+      ReturnType<GetTransaction['execute']>,
+      Parameters<GetTransaction['execute']>
+    >()
+    .mockImplementationOnce(() => okAsync(details));
+  const list = jest
+    .fn<
+      ReturnType<ListTransactions['execute']>,
+      Parameters<ListTransactions['execute']>
+    >()
+    .mockImplementationOnce(() => okAsync([history]));
   const controller = new TransactionsController(
     { execute: create } as unknown as CreateTransaction,
     { execute: get } as unknown as GetTransaction,
@@ -84,12 +99,23 @@ function fixture() {
   return { controller, create, get, list };
 }
 
+async function httpError(operation: Promise<unknown>): Promise<HttpException> {
+  const error: unknown = await operation.catch((value: unknown) => value);
+  expect(error).toBeInstanceOf(HttpException);
+  if (!(error instanceof HttpException))
+    throw new Error('Expected HTTP exception');
+  expect(error.getResponse()).toHaveProperty('error.code');
+  expect(error.getResponse()).toHaveProperty('error.message');
+  return error;
+}
+
 describe('TransactionsController', () => {
-  it('lists only the use-case projection and performs no financial operation', async () => {
+  it('delegates history reading and preserves the public projection', async () => {
     const { controller, create, get, list } = fixture();
     const result = await controller.list(request());
 
     expect(result).toEqual({ data: { items: [history] } });
+    expect(list).toHaveBeenCalledTimes(1);
     expect(list).toHaveBeenCalledWith(owner);
     expect(create).not.toHaveBeenCalled();
     expect(get).not.toHaveBeenCalled();
@@ -100,22 +126,26 @@ describe('TransactionsController', () => {
 
   it('returns an empty history and sanitizes read failures', async () => {
     const { controller, list } = fixture();
-    list.mockImplementationOnce(() => okAsync([]));
+    list.mockReset().mockImplementationOnce(() => okAsync([]));
     await expect(controller.list(request())).resolves.toEqual({
       data: { items: [] },
     });
 
-    list.mockImplementationOnce(() =>
-      errAsync({ kind: 'PERSISTENCE_UNAVAILABLE' as const }),
-    );
-    const error: unknown = await controller
-      .list(request())
-      .catch((value: unknown) => value);
-    expect(error).toMatchObject({ status: 503 });
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledWith(owner);
+    list
+      .mockReset()
+      .mockImplementationOnce(() =>
+        errAsync({ kind: 'PERSISTENCE_UNAVAILABLE' as const }),
+      );
+    const error = await httpError(controller.list(request()));
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledWith(owner);
+    expect(error.getStatus()).toBe(503);
     expect(error).toBeInstanceOf(Error);
-    expect(
-      JSON.stringify((error as BadRequestException).getResponse()),
-    ).not.toMatch(/postgres|query|constraint|stack/i);
+    expect(JSON.stringify(error.getResponse())).not.toMatch(
+      /postgres|query|constraint|stack/i,
+    );
   });
 
   it('creates exactly one attempt with owner, key and accepted summary', async () => {
@@ -150,23 +180,33 @@ describe('TransactionsController', () => {
 
   it('translates transaction conflicts without exposing persistence details', async () => {
     const { controller, create } = fixture();
-    create.mockImplementation(() =>
-      errAsync({ kind: 'IDEMPOTENCY_CONFLICT' as const }),
+    create
+      .mockReset()
+      .mockImplementationOnce(() =>
+        errAsync({ kind: 'IDEMPOTENCY_CONFLICT' as const }),
+      );
+    const error = await httpError(
+      controller.create(request(), key, { checkoutId, acceptedSummary }),
     );
-    const error: unknown = await controller
-      .create(request(), key, { checkoutId, acceptedSummary })
-      .catch((value: unknown) => value);
-    expect(error).toMatchObject({ status: 409 });
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledWith(
+      owner,
+      checkoutId,
+      key,
+      acceptedSummary,
+    );
+    expect(error.getStatus()).toBe(409);
     expect(error).toBeInstanceOf(Error);
-    expect(
-      JSON.stringify((error as BadRequestException).getResponse()),
-    ).not.toMatch(/postgres|query|constraint|stack/i);
+    expect(JSON.stringify(error.getResponse())).not.toMatch(
+      /postgres|query|constraint|stack/i,
+    );
   });
 
-  it('reads owned details without creating, paying or synchronizing', async () => {
+  it('propagates the session to detail reading and preserves the public projection', async () => {
     const { controller, create, get, list } = fixture();
     const result = await controller.get(request(), transactionId);
     expect(result).toEqual({ data: details });
+    expect(get).toHaveBeenCalledTimes(1);
     expect(get).toHaveBeenCalledWith(owner, transactionId);
     expect(create).not.toHaveBeenCalled();
     expect(list).not.toHaveBeenCalled();
@@ -175,22 +215,19 @@ describe('TransactionsController', () => {
     );
   });
 
-  it('makes foreign and nonexistent attempts indistinguishable', async () => {
+  it('maps a missing-resource result to the public 404', async () => {
     const { controller, get } = fixture();
-    get.mockImplementation(() =>
-      errAsync({ kind: 'RESOURCE_NOT_FOUND' as const }),
-    );
-    const foreign: unknown = await controller
-      .get(request(), transactionId)
-      .catch((value: unknown) => value);
-    const missing: unknown = await controller
-      .get(request(), transactionId)
-      .catch((value: unknown) => value);
-    expect(foreign).toBeInstanceOf(Error);
-    expect(missing).toBeInstanceOf(Error);
-    expect((foreign as BadRequestException).getStatus()).toBe(404);
-    expect((foreign as BadRequestException).getResponse()).toEqual(
-      (missing as BadRequestException).getResponse(),
-    );
+    get
+      .mockReset()
+      .mockImplementationOnce(() =>
+        errAsync({ kind: 'RESOURCE_NOT_FOUND' as const }),
+      );
+    const error = await httpError(controller.get(request(), transactionId));
+    expect(error.getStatus()).toBe(404);
+    expect(error.getResponse()).toEqual({
+      error: { code: 'RESOURCE_NOT_FOUND', message: 'RESOURCE_NOT_FOUND' },
+    });
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith(owner, transactionId);
   });
 });

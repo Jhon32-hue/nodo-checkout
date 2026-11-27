@@ -70,9 +70,24 @@ function response() {
 }
 
 function fixture() {
-  const configuration = jest.fn(() => okAsync(config));
-  const pay = jest.fn(() => okAsync(attempt('APPROVED', 'SUBMITTED')));
-  const sync = jest.fn(() => okAsync(attempt('APPROVED', 'SUBMITTED')));
+  const configuration = jest
+    .fn<
+      ReturnType<GetPaymentConfig['execute']>,
+      Parameters<GetPaymentConfig['execute']>
+    >()
+    .mockImplementationOnce(() => okAsync(config));
+  const pay = jest
+    .fn<
+      ReturnType<StartPayment['execute']>,
+      Parameters<StartPayment['execute']>
+    >()
+    .mockImplementationOnce(() => okAsync(attempt('APPROVED', 'SUBMITTED')));
+  const sync = jest
+    .fn<
+      ReturnType<SyncPayment['execute']>,
+      Parameters<SyncPayment['execute']>
+    >()
+    .mockImplementationOnce(() => okAsync(attempt('APPROVED', 'SUBMITTED')));
   const controller = new PaymentsController(
     { execute: configuration } as unknown as GetPaymentConfig,
     { execute: pay } as unknown as StartPayment,
@@ -81,12 +96,23 @@ function fixture() {
   return { controller, configuration, pay, sync };
 }
 
+async function httpError(operation: Promise<unknown>): Promise<HttpException> {
+  const error: unknown = await operation.catch((value: unknown) => value);
+  expect(error).toBeInstanceOf(HttpException);
+  if (!(error instanceof HttpException))
+    throw new Error('Expected HTTP exception');
+  expect(error.getResponse()).toHaveProperty('error.code');
+  expect(error.getResponse()).toHaveProperty('error.message');
+  return error;
+}
+
 describe('PaymentsController behavior', () => {
-  it('returns only public payment configuration', async () => {
+  it('preserves the public configuration projection from the use case', async () => {
     const { controller, configuration, pay, sync } = fixture();
     const result = await controller.configuration();
     expect(result).toEqual({ data: config });
     expect(configuration).toHaveBeenCalledTimes(1);
+    expect(configuration).toHaveBeenCalledWith();
     expect(pay).not.toHaveBeenCalled();
     expect(sync).not.toHaveBeenCalled();
     expect(JSON.stringify(result)).not.toMatch(
@@ -96,33 +122,37 @@ describe('PaymentsController behavior', () => {
 
   it('maps provider configuration and acceptance failures safely', async () => {
     const { controller, configuration, pay } = fixture();
-    configuration.mockImplementationOnce(() =>
+    configuration.mockReset().mockImplementationOnce(() =>
       errAsync({
         kind: 'GATEWAY_UNAVAILABLE' as const,
         operation: 'configuration' as const,
         reason: 'transport' as const,
       }),
     );
-    const unavailable: unknown = await controller
-      .configuration()
-      .catch((value: unknown) => value);
+    const unavailable = await httpError(controller.configuration());
     expect(unavailable).toBeInstanceOf(HttpException);
-    expect((unavailable as HttpException).getStatus()).toBe(503);
-    expect(
-      JSON.stringify((unavailable as HttpException).getResponse()),
-    ).not.toMatch(/stack|authorization|private|body/i);
-
-    pay.mockImplementationOnce(() =>
-      errAsync({ kind: 'INVALID_ACCEPTANCE' as const }),
+    expect(unavailable.getStatus()).toBe(503);
+    expect(JSON.stringify(unavailable.getResponse())).not.toMatch(
+      /stack|authorization|private|body/i,
     );
-    const invalid: unknown = await controller
-      .pay(request(), transactionId, payBody, response().value)
-      .catch((value: unknown) => value);
+
+    pay
+      .mockReset()
+      .mockImplementationOnce(() =>
+        errAsync({ kind: 'INVALID_ACCEPTANCE' as const }),
+      );
+    const invalid = await httpError(
+      controller.pay(request(), transactionId, payBody, response().value),
+    );
     expect(invalid).toBeInstanceOf(HttpException);
-    expect((invalid as HttpException).getStatus()).toBe(422);
-    expect(
-      JSON.stringify((invalid as HttpException).getResponse()),
-    ).not.toContain(payBody.acceptance.acceptanceToken);
+    expect(invalid.getStatus()).toBe(422);
+    expect(pay).toHaveBeenCalledTimes(1);
+    expect(pay).toHaveBeenCalledWith('owner-session', transactionId, payBody);
+    expect(configuration).toHaveBeenCalledTimes(1);
+    expect(configuration).toHaveBeenCalledWith();
+    expect(JSON.stringify(invalid.getResponse())).not.toContain(
+      payBody.acceptance.acceptanceToken,
+    );
   });
 
   it('returns 200 for a final pay result and invokes pay exactly once', async () => {
@@ -140,7 +170,9 @@ describe('PaymentsController behavior', () => {
 
   it('returns 202 and Retry-After for an already dispatched pending result', async () => {
     const { controller, pay } = fixture();
-    pay.mockImplementationOnce(() => okAsync(attempt('PENDING', 'UNKNOWN')));
+    pay
+      .mockReset()
+      .mockImplementationOnce(() => okAsync(attempt('PENDING', 'UNKNOWN')));
     const res = response();
     await expect(
       controller.pay(request(), transactionId, payBody, res.value),
@@ -148,11 +180,14 @@ describe('PaymentsController behavior', () => {
     expect(res.status).toHaveBeenCalledWith(202);
     expect(res.setHeader).toHaveBeenCalledWith('Retry-After', '5');
     expect(pay).toHaveBeenCalledTimes(1);
+    expect(pay).toHaveBeenCalledWith('owner-session', transactionId, payBody);
   });
 
   it('syncs only from the explicit operation and never invokes pay', async () => {
     const { controller, pay, sync } = fixture();
-    sync.mockImplementationOnce(() => okAsync(attempt('PENDING', 'SUBMITTED')));
+    sync
+      .mockReset()
+      .mockImplementationOnce(() => okAsync(attempt('PENDING', 'SUBMITTED')));
     const res = response();
     await expect(
       controller.sync(request(), transactionId, res.value),
@@ -185,25 +220,33 @@ describe('PaymentsController behavior', () => {
 
   it('maps missing ownership and persistence failures without exposing internals', async () => {
     const { controller, pay, sync } = fixture();
-    pay.mockImplementationOnce(() =>
-      errAsync({ kind: 'RESOURCE_NOT_FOUND' as const }),
-    );
-    sync.mockImplementationOnce(() =>
-      errAsync({ kind: 'PERSISTENCE_UNAVAILABLE' as const }),
-    );
+    pay
+      .mockReset()
+      .mockImplementationOnce(() =>
+        errAsync({ kind: 'RESOURCE_NOT_FOUND' as const }),
+      );
+    sync
+      .mockReset()
+      .mockImplementationOnce(() =>
+        errAsync({ kind: 'PERSISTENCE_UNAVAILABLE' as const }),
+      );
 
-    const missing: unknown = await controller
-      .pay(request(), transactionId, payBody, response().value)
-      .catch((value: unknown) => value);
-    const unavailable: unknown = await controller
-      .sync(request(), transactionId, response().value)
-      .catch((value: unknown) => value);
+    const missing = await httpError(
+      controller.pay(request(), transactionId, payBody, response().value),
+    );
+    const unavailable = await httpError(
+      controller.sync(request(), transactionId, response().value),
+    );
     expect(missing).toBeInstanceOf(HttpException);
     expect(unavailable).toBeInstanceOf(HttpException);
-    expect((missing as HttpException).getStatus()).toBe(404);
-    expect((unavailable as HttpException).getStatus()).toBe(503);
-    expect(
-      JSON.stringify((unavailable as HttpException).getResponse()),
-    ).not.toMatch(/postgres|query|constraint|stack/i);
+    expect(missing.getStatus()).toBe(404);
+    expect(pay).toHaveBeenCalledTimes(1);
+    expect(pay).toHaveBeenCalledWith('owner-session', transactionId, payBody);
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(sync).toHaveBeenCalledWith('owner-session', transactionId);
+    expect(unavailable.getStatus()).toBe(503);
+    expect(JSON.stringify(unavailable.getResponse())).not.toMatch(
+      /postgres|query|constraint|stack/i,
+    );
   });
 });

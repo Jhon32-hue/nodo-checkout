@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  HttpException,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -22,13 +23,29 @@ const product: ProductView = {
 };
 
 function fixture() {
-  const list = jest.fn(() => okAsync({ items: [product] }));
-  const get = jest.fn(() => okAsync(product));
+  const list = jest.fn<
+    ReturnType<ListProducts['execute']>,
+    Parameters<ListProducts['execute']>
+  >();
+  const get = jest.fn<
+    ReturnType<GetProduct['execute']>,
+    Parameters<GetProduct['execute']>
+  >();
+  list.mockReturnValueOnce(okAsync({ items: [product] }));
+  get.mockReturnValueOnce(okAsync(product));
   const controller = new ProductsController(
     { execute: list } as unknown as ListProducts,
     { execute: get } as unknown as GetProduct,
   );
   return { controller, list, get };
+}
+
+async function httpError(operation: Promise<unknown>): Promise<HttpException> {
+  const error: unknown = await operation.catch((value: unknown) => value);
+  expect(error).toBeInstanceOf(HttpException);
+  if (!(error instanceof HttpException))
+    throw new Error('Expected HTTP exception');
+  return error;
 }
 
 describe('ProductsController', () => {
@@ -42,6 +59,8 @@ describe('ProductsController', () => {
       data: product,
     });
     expect(list).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledWith();
+    expect(get).toHaveBeenCalledTimes(1);
     expect(get).toHaveBeenCalledWith(product.id);
   });
 
@@ -60,44 +79,49 @@ describe('ProductsController', () => {
 
   it('maps missing products to a sanitized 404', async () => {
     const { controller, get } = fixture();
-    get.mockImplementation(() =>
-      errAsync({ kind: 'ProductNotFound' as const }),
-    );
+    get
+      .mockReset()
+      .mockImplementationOnce(() =>
+        errAsync({ kind: 'ProductNotFound' as const }),
+      );
 
-    await expect(controller.get(product.id, {})).rejects.toMatchObject({
-      status: 404,
+    const error = await httpError(controller.get(product.id, {}));
+    expect(error).toBeInstanceOf(NotFoundException);
+    expect(error.getStatus()).toBe(404);
+    expect(error.getResponse()).toEqual({
+      error: { code: 'PRODUCT_NOT_FOUND', message: 'Producto no encontrado.' },
     });
-    try {
-      await controller.get(product.id, {});
-    } catch (error: unknown) {
-      expect(error).toBeInstanceOf(NotFoundException);
-      expect(
-        JSON.stringify((error as NotFoundException).getResponse()),
-      ).not.toMatch(/query|postgres|stack|session/i);
-    }
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith(product.id);
   });
 
   it('maps list and detail persistence failures to the same safe 503', async () => {
     const { controller, list, get } = fixture();
-    list.mockImplementation(() =>
-      errAsync({ kind: 'CatalogUnavailable' as const }),
-    );
-    get.mockImplementation(() =>
-      errAsync({ kind: 'CatalogUnavailable' as const }),
-    );
+    list
+      .mockReset()
+      .mockImplementationOnce(() =>
+        errAsync({ kind: 'CatalogUnavailable' as const }),
+      );
+    get
+      .mockReset()
+      .mockImplementationOnce(() =>
+        errAsync({ kind: 'CatalogUnavailable' as const }),
+      );
 
     for (const operation of [
       controller.list({}),
       controller.get(product.id, {}),
     ]) {
-      await expect(operation).rejects.toBeInstanceOf(
-        ServiceUnavailableException,
-      );
-      await operation.catch((error: ServiceUnavailableException) => {
-        const publicBody = JSON.stringify(error.getResponse());
-        expect(publicBody).toContain('CATALOG_UNAVAILABLE');
-        expect(publicBody).not.toMatch(/query|postgres|constraint|stack/i);
-      });
+      const error = await httpError(operation);
+      expect(error).toBeInstanceOf(ServiceUnavailableException);
+      expect(error.getStatus()).toBe(503);
+      const publicBody = JSON.stringify(error.getResponse());
+      expect(publicBody).toContain('CATALOG_UNAVAILABLE');
+      expect(publicBody).not.toMatch(/query|postgres|constraint|stack/i);
     }
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledWith();
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith(product.id);
   });
 });

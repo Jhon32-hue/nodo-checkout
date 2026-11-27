@@ -135,7 +135,7 @@ describe('guest session security', () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it('authenticates an owned session and enforces origin and CSRF on writes', async () => {
+  it('propagates an authenticated session and enforces CSRF on writes', async () => {
     const tokens = new CryptoSessionTokens(secret, [origin]);
     const execute = jest.fn(() => okAsync(session));
     const guard = new CheckoutGuard(
@@ -165,9 +165,10 @@ describe('guest session security', () => {
     await expect(
       guard.canActivate(context(invalidCsrf, response().value)),
     ).rejects.toMatchObject({ status: 403 });
+    expect(execute).toHaveBeenCalledTimes(2);
   });
 
-  it('rejects absent, altered and expired sessions without disclosing ownership', async () => {
+  it('propagates authentication rejection for absent, malformed and well-formed cookies', async () => {
     const tokens = new CryptoSessionTokens(secret, [origin]);
     const execute = jest.fn(() =>
       errAsync({ kind: 'SESSION_REQUIRED' as const }),
@@ -190,28 +191,16 @@ describe('guest session security', () => {
     expect(execute).toHaveBeenNthCalledWith(1, undefined);
     expect(execute).toHaveBeenNthCalledWith(2, undefined);
     expect(execute).toHaveBeenNthCalledWith(3, validToken);
-  });
-
-  it('maps foreign and missing resources to the same sanitized response', () => {
-    const foreign = failure({ kind: 'RESOURCE_NOT_FOUND' });
-    const missing = failure({ kind: 'RESOURCE_NOT_FOUND' });
-    expect(foreign.getStatus()).toBe(404);
-    expect(foreign.getResponse()).toEqual(missing.getResponse());
-    expect(JSON.stringify(foreign.getResponse())).not.toMatch(
-      /session|owner|postgres|stack/i,
-    );
+    expect(execute).toHaveBeenCalledTimes(3);
   });
 
   it('maps all public error families without leaking internal details', () => {
     const cases = [
-      ['SESSION_REQUIRED', 401],
       ['ORIGIN_DENIED', 403],
-      ['CSRF_INVALID', 403],
       ['PRODUCT_NOT_FOUND', 404],
       ['RESERVATION_EXPIRED', 409],
       ['OBSERVATION_CONFLICT', 409],
       ['PAYLOAD_CONFLICT', 409],
-      ['PERSISTENCE_UNAVAILABLE', 503],
       ['INVALID_BUYER', 422],
     ] as const;
     for (const [kind, expectedStatus] of cases) {

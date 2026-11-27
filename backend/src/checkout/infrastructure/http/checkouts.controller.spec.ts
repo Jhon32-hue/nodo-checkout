@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, HttpException } from '@nestjs/common';
 import type { ArgumentsHost } from '@nestjs/common';
 import type { Response } from 'express';
 import { errAsync, okAsync } from 'neverthrow';
@@ -65,18 +65,40 @@ function response() {
 }
 
 function fixture() {
-  const ensure = jest.fn(() =>
-    okAsync({
-      created: true,
-      token: 'a'.repeat(64),
-      csrfToken: 'csrf-test',
-      session: { id: 'owner-session', expiresAt },
-    }),
-  );
-  const create = jest.fn(() => okAsync(view));
-  const get = jest.fn(() => okAsync(view));
-  const update = jest.fn(() => okAsync(view));
-  const getSummary = jest.fn(() => okAsync(summary));
+  const ensure = jest
+    .fn<
+      ReturnType<EnsureCheckoutSession['execute']>,
+      Parameters<EnsureCheckoutSession['execute']>
+    >()
+    .mockImplementationOnce(() =>
+      okAsync({
+        created: true,
+        token: 'a'.repeat(64),
+        csrfToken: 'csrf-test',
+        session: { id: 'owner-session', expiresAt },
+      }),
+    );
+  const create = jest
+    .fn<
+      ReturnType<CreateCheckout['execute']>,
+      Parameters<CreateCheckout['execute']>
+    >()
+    .mockImplementationOnce(() => okAsync(view));
+  const get = jest
+    .fn<
+      ReturnType<GetCheckout['execute']>,
+      Parameters<GetCheckout['execute']>
+    >()
+    .mockImplementationOnce(() => okAsync(view));
+  const update = jest
+    .fn<
+      ReturnType<UpdateCheckout['execute']>,
+      Parameters<UpdateCheckout['execute']>
+    >()
+    .mockImplementationOnce(() => okAsync(view));
+  const getSummary = jest
+    .fn<ReturnType<GetSummary['execute']>, Parameters<GetSummary['execute']>>()
+    .mockImplementationOnce(() => okAsync(summary));
   const tokens = new CryptoSessionTokens(
     'a-secure-test-secret-with-32-characters',
     ['https://store.example.test', 'http://localhost:5173'],
@@ -92,6 +114,16 @@ function fixture() {
   return { controller, ensure, create, get, update, getSummary, tokens };
 }
 
+async function httpError(operation: Promise<unknown>): Promise<HttpException> {
+  const error: unknown = await operation.catch((value: unknown) => value);
+  expect(error).toBeInstanceOf(HttpException);
+  if (!(error instanceof HttpException))
+    throw new Error('Expected HTTP exception');
+  expect(error.getResponse()).toHaveProperty('error.code');
+  expect(error.getResponse()).toHaveProperty('error.message');
+  return error;
+}
+
 describe('CheckoutsController', () => {
   it('creates a guest session with the complete secure cookie contract', async () => {
     const { controller, ensure } = fixture();
@@ -101,8 +133,11 @@ describe('CheckoutsController', () => {
     await expect(controller.session(req, res.value)).resolves.toEqual({
       data: { csrfToken: 'csrf-test', expiresAt: expiresAt.toISOString() },
     });
+    expect(ensure).toHaveBeenCalledTimes(1);
     expect(ensure).toHaveBeenCalledWith(undefined);
+    expect(res.status).toHaveBeenCalledTimes(1);
     expect(res.status).toHaveBeenCalledWith(201);
+    expect(res.cookie).toHaveBeenCalledTimes(1);
     expect(res.cookie).toHaveBeenCalledWith(
       'checkout_session',
       'a'.repeat(64),
@@ -118,7 +153,7 @@ describe('CheckoutsController', () => {
 
   it('keeps localhost HTTP usable and does not replace an existing cookie', async () => {
     const { controller, ensure } = fixture();
-    ensure.mockImplementation(() =>
+    ensure.mockReset().mockImplementationOnce(() =>
       okAsync({
         created: false,
         token: 'b'.repeat(64),
@@ -139,6 +174,7 @@ describe('CheckoutsController', () => {
         expiresAt: expiresAt.toISOString(),
       },
     });
+    expect(ensure).toHaveBeenCalledTimes(1);
     expect(ensure).toHaveBeenCalledWith(token);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.cookie).not.toHaveBeenCalled();
@@ -174,20 +210,26 @@ describe('CheckoutsController', () => {
 
   it('sanitizes session persistence failures', async () => {
     const { controller, ensure } = fixture();
-    ensure.mockImplementation(() =>
-      errAsync({ kind: 'PERSISTENCE_UNAVAILABLE' as const }),
-    );
-    await expect(
+    ensure
+      .mockReset()
+      .mockImplementationOnce(() =>
+        errAsync({ kind: 'PERSISTENCE_UNAVAILABLE' as const }),
+      );
+    const error = await httpError(
       controller.session(request(), response().value),
-    ).rejects.toMatchObject({ status: 503 });
-    await controller
-      .session(request(), response().value)
-      .catch((error: unknown) => {
-        expect(JSON.stringify(error)).not.toMatch(/postgres|constraint|stack/i);
-      });
+    );
+    expect(error.getStatus()).toBe(503);
+    expect(JSON.stringify(error.getResponse())).toContain(
+      'PERSISTENCE_UNAVAILABLE',
+    );
+    expect(JSON.stringify(error.getResponse())).not.toMatch(
+      /postgres|constraint|stack/i,
+    );
+    expect(ensure).toHaveBeenCalledTimes(1);
+    expect(ensure).toHaveBeenCalledWith(undefined);
   });
 
-  it('passes the owner and validated values to create, read, update and summary', async () => {
+  it('propagates the session and input to create, read, update and summary', async () => {
     const { controller, create, get, update, getSummary } = fixture();
     const req = request();
     const patch = { quantity: 3 };
@@ -204,9 +246,13 @@ describe('CheckoutsController', () => {
     await expect(controller.getSummary(req, checkoutId)).resolves.toEqual({
       data: summary,
     });
+    expect(create).toHaveBeenCalledTimes(1);
     expect(create).toHaveBeenCalledWith('owner-session', productId, 2);
+    expect(get).toHaveBeenCalledTimes(1);
     expect(get).toHaveBeenCalledWith('owner-session', checkoutId);
+    expect(update).toHaveBeenCalledTimes(1);
     expect(update).toHaveBeenCalledWith('owner-session', checkoutId, patch);
+    expect(getSummary).toHaveBeenCalledTimes(1);
     expect(getSummary).toHaveBeenCalledWith('owner-session', checkoutId);
   });
 
@@ -228,44 +274,54 @@ describe('CheckoutsController', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it('returns the same 404 for a foreign or nonexistent checkout', async () => {
+  it('maps a missing-resource result to the public 404', async () => {
     const { controller, get } = fixture();
-    get.mockImplementation(() =>
-      errAsync({ kind: 'RESOURCE_NOT_FOUND' as const }),
-    );
+    get
+      .mockReset()
+      .mockImplementationOnce(() =>
+        errAsync({ kind: 'RESOURCE_NOT_FOUND' as const }),
+      );
 
-    const first = controller
-      .get(request(), checkoutId)
-      .catch((error: unknown) => error);
-    const second = controller
-      .get(request(), checkoutId)
-      .catch((error: unknown) => error);
-    const [foreign, missing] = await Promise.all([first, second]);
-    expect((foreign as BadRequestException).getStatus()).toBe(404);
-    expect((foreign as BadRequestException).getResponse()).toEqual(
-      (missing as BadRequestException).getResponse(),
-    );
+    const error = await httpError(controller.get(request(), checkoutId));
+    expect(error.getStatus()).toBe(404);
+    expect(error.getResponse()).toEqual({
+      error: { code: 'RESOURCE_NOT_FOUND', message: 'RESOURCE_NOT_FOUND' },
+    });
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith('owner-session', checkoutId);
   });
 
   it('translates conflict and persistence errors without internal bodies', async () => {
     const { controller, update, getSummary } = fixture();
-    update.mockImplementation(() =>
-      errAsync({ kind: 'CHECKOUT_LOCKED' as const }),
-    );
-    getSummary.mockImplementation(() =>
-      errAsync({ kind: 'PERSISTENCE_UNAVAILABLE' as const }),
-    );
+    update
+      .mockReset()
+      .mockImplementationOnce(() =>
+        errAsync({ kind: 'CHECKOUT_LOCKED' as const }),
+      );
+    getSummary
+      .mockReset()
+      .mockImplementationOnce(() =>
+        errAsync({ kind: 'PERSISTENCE_UNAVAILABLE' as const }),
+      );
 
-    await expect(
+    const conflict = await httpError(
       controller.patch(request(), checkoutId, { quantity: 2 }),
-    ).rejects.toMatchObject({ status: 409 });
-    const error = await controller
-      .getSummary(request(), checkoutId)
-      .catch((value: unknown) => value);
-    expect((error as BadRequestException).getStatus()).toBe(503);
-    expect(
-      JSON.stringify((error as BadRequestException).getResponse()),
-    ).not.toMatch(/postgres|query|constraint|stack/i);
+    );
+    expect(conflict.getStatus()).toBe(409);
+    expect(conflict.getResponse()).toEqual({
+      error: { code: 'CHECKOUT_LOCKED', message: 'CHECKOUT_LOCKED' },
+    });
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith('owner-session', checkoutId, {
+      quantity: 2,
+    });
+    const error = await httpError(controller.getSummary(request(), checkoutId));
+    expect(getSummary).toHaveBeenCalledTimes(1);
+    expect(getSummary).toHaveBeenCalledWith('owner-session', checkoutId);
+    expect(error.getStatus()).toBe(503);
+    expect(JSON.stringify(error.getResponse())).not.toMatch(
+      /postgres|query|constraint|stack/i,
+    );
   });
 
   it('normalizes validation exceptions through the input filter', () => {
@@ -276,6 +332,7 @@ describe('CheckoutsController', () => {
     new CheckoutInputFilter().catch(new BadRequestException('private'), host);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(res.json.mock.calls[0][0])).not.toContain('private');
     expect(JSON.stringify(res.json.mock.calls[0][0])).toContain(
       'INVALID_REQUEST',
     );
